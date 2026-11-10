@@ -6,7 +6,7 @@ A fast text formatter for [Adventure](https://github.com/KyoriPowered/adventure)
 
 **Status: stage 4 of the [plan](docs/PLAN.md); MessageFlow 1.2 (branch) formats with it.** Messages made of colours, decorations, clicks, hovers,
 insertions, gradients, rainbows and placeholders (also in click and insert arguments) are compiled without MiniMessage
-(checked against it once, at compile); others are compiled once with MiniMessage and the values swapped in at render. MessageFlow can use it behind `formatter.engine: minimessageflow`.
+(checked against it once, at compile); others are compiled once with MiniMessage and the values swapped in at render.
 Nothing is published (`./gradlew publishToMavenLocal` for local use).
 
 ```java
