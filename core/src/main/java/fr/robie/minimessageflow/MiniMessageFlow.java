@@ -5,6 +5,7 @@ import fr.robie.minimessageflow.core.Engine;
 import net.kyori.adventure.pointer.Pointered;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.minimessage.tag.resolver.TagResolver;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -31,7 +32,8 @@ public final class MiniMessageFlow {
     private final BoundedCache<String, Template> templates;
 
     private MiniMessageFlow(@NotNull Builder builder) {
-        this.engine = new Engine(builder.legacyCodes, builder.resolvers, builder.tags, builder.valueCacheSize);
+        this.engine = new Engine(builder.legacyCodes, builder.resolvers, builder.tags, builder.valueCacheSize,
+                builder.nativeCompiler, builder.verifyNative);
         this.templates = new BoundedCache<>(builder.templateCacheSize);
     }
 
@@ -86,6 +88,8 @@ public final class MiniMessageFlow {
         private @Nullable TagResolver tags;
         private int templateCacheSize = 1024;
         private int valueCacheSize = 512;
+        private boolean nativeCompiler = true;
+        private boolean verifyNative = true;
 
         private Builder() {
         }
@@ -130,6 +134,27 @@ public final class MiniMessageFlow {
          */
         public @NotNull Builder valueCacheSize(int size) {
             this.valueCacheSize = positive(size);
+            return this;
+        }
+
+        /**
+         * Whether messages made only of colours, decorations, {@code reset}, {@code newline}, {@code click},
+         * {@code hover:show_text}, {@code insert} and placeholders are compiled without MiniMessage, so a render
+         * builds the component directly. Others always go through MiniMessage. Default: true.
+         */
+        public @NotNull Builder nativeCompiler(boolean nativeCompiler) {
+            this.nativeCompiler = nativeCompiler;
+            return this;
+        }
+
+        /**
+         * Whether each natively compiled message is checked against MiniMessage when it is compiled, and left to
+         * MiniMessage when they differ. Default: true. Turning it off makes compiling cheaper and is how the tests
+         * check the native compiler itself.
+         */
+        @ApiStatus.Experimental
+        public @NotNull Builder verifyNative(boolean verifyNative) {
+            this.verifyNative = verifyNative;
             return this;
         }
 

@@ -33,6 +33,14 @@ public class TemplateBenchmark {
     private final Template clickValue = this.flow.compile("<click:run_command:'/tp %name%'>[tp %name%]");
     private final Template gradient = this.flow.compile("<gradient:red:blue>Welcome %name%!</gradient>");
 
+    /**
+     * Stage 1's engine (markers swapped in MiniMessage's tree), for comparison.
+     */
+    private final Template shopMarkers = MiniMessageFlow.builder().nativeCompiler(false).build()
+            .compile("<green>%item%</green> for <gold>%price.comma%</gold> <click:run_command:'/buy 42'>[Buy]");
+    private final Template shopPlain = this.flow.compile("<green>%item%</green> for <gold>%price%</gold> <click:run_command:'/buy %id%'>[Buy]");
+    private final Template threeValues = this.flow.compile("<green>%item%</green> for <gold>%price%</gold> <click:run_command:'/buy 42'>[Buy %n%]");
+
     private final Placeholder shopValues = Placeholder.builder()
             .register("item", "Sword")
             .register("price", "1250")
@@ -55,6 +63,25 @@ public class TemplateBenchmark {
     public Component shopRender() {
         return this.shop.render(this.shopValues);
     }
+
+    @Benchmark
+    public Component shopRenderMarkers() {
+        return this.shopMarkers.render(this.shopValues);
+    }
+
+    /**
+     * The plan's target case: 3 placeholders and a click, no modifier.
+     */
+    @Benchmark
+    public Component threePlaceholdersClick() {
+        return this.threeValues.render(this.threeValuesPlaceholder);
+    }
+
+    private final Placeholder threeValuesPlaceholder = Placeholder.builder()
+            .register("item", "Sword")
+            .register("price", "1,250")
+            .register("n", "1")
+            .build();
 
     @Benchmark
     public Component shopKeyTagsRender() {

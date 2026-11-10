@@ -32,6 +32,17 @@ public final class TagKeys {
         return key.toString();
     }
 
+    public static @NotNull String key(@NotNull String name, @NotNull java.util.List<String> arguments) {
+        if (arguments.isEmpty()) {
+            return name;
+        }
+        StringBuilder key = new StringBuilder(name);
+        for (String argument : arguments) {
+            key.append(isModifier(argument) ? '.' : ':').append(argument);
+        }
+        return key.toString();
+    }
+
     private static boolean isModifier(@NotNull String argument) {
         return !argument.isEmpty() && argument.equals(argument.toLowerCase(Locale.ROOT))
                 && PlaceholderModifiers.get(argument) != null;

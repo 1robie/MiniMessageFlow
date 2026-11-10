@@ -61,7 +61,10 @@ public final class Engine {
     private static final PlainTextComponentSerializer PLAIN = PlainTextComponentSerializer.plainText();
 
     private final boolean legacyCodes;
+    private final boolean nativeCompiler;
+    private final boolean verifyNative;
     private final List<Resolver> resolvers;
+    private final @Nullable TagResolver userTags;
     private final TagResolver tags;
     private final MiniMessage miniMessage;
     private final MiniMessage templateMiniMessage;
@@ -75,10 +78,17 @@ public final class Engine {
      * @param resolvers   asked in order for the placeholders a call doesn't give
      * @param userTags    extra MiniMessage tags, tried before the standard ones; null for none
      * @param cacheSize   the size of each value cache
+     * @param nativeCompiler whether messages made only of native tags are compiled without MiniMessage
+     * @param verifyNative   whether each native template is checked against MiniMessage when compiled (false only
+     *                       to test the native compiler itself)
      */
-    public Engine(boolean legacyCodes, @NotNull List<Resolver> resolvers, @Nullable TagResolver userTags, int cacheSize) {
+    public Engine(boolean legacyCodes, @NotNull List<Resolver> resolvers, @Nullable TagResolver userTags, int cacheSize,
+                  boolean nativeCompiler, boolean verifyNative) {
         this.legacyCodes = legacyCodes;
+        this.nativeCompiler = nativeCompiler;
+        this.verifyNative = verifyNative;
         this.resolvers = List.copyOf(resolvers);
+        this.userTags = userTags;
         // In a TagResolver builder the last resolver wins a name: user tags go after the standard ones.
         this.tags = userTags == null ? StandardTags.defaults()
                 : TagResolver.builder().resolver(StandardTags.defaults()).resolver(userTags).build();
@@ -145,8 +155,16 @@ public final class Engine {
         for (int slot = 0; slot < probe.length; slot++) {
             probe[slot] = unclaimed.contains(slot) ? null : Component.text(PROBE + slot + PROBE);
         }
-        Component swapped = this.insert(parsed, probe).compact();
         Component reparsed = this.miniMessage.deserialize(this.legacy(text), new SlotTags(slots, unclaimed, false, probe));
+        if (this.nativeCompiler) {
+            List<NativeCompiler.Part> parts = NativeCompiler.compile(this.legacy(text), StandardTags.defaults(), this.userTags, slots, unclaimed);
+            // Checked against MiniMessage with the same probe values: a message the native compiler would read
+            // differently stays with MiniMessage.
+            if (parts != null && (!this.verifyNative || Rendering.same(NativeCompiler.render(parts, probe), reparsed))) {
+                return new Form.Native(parts);
+            }
+        }
+        Component swapped = this.insert(parsed, probe).compact();
         return swapped.equals(reparsed) ? new Form.Markers(parsed) : withValues;
     }
 
@@ -211,6 +229,7 @@ public final class Engine {
     @NotNull Component render(@NotNull Form form, @Nullable Component @NotNull [] values) {
         return switch (form) {
             case Form.Static(Component component) -> component;
+            case Form.Native(List<NativeCompiler.Part> parts) -> NativeCompiler.render(parts, values);
             case Form.Markers(Component component) -> this.insert(component, values).compact();
             case Form.WithValues(String text, Set<Integer> unclaimed, Slots slots) -> this.withValues.get(
                     new ValuesKey(text, unclaimed, Arrays.asList(values.clone())),
@@ -355,7 +374,7 @@ public final class Engine {
         return parseIndex(content, 1, length - 1);
     }
 
-    private static int slotTagIndex(@NotNull String name) {
+    static int slotTagIndex(@NotNull String name) {
         return name.startsWith(SLOT_TAG) ? parseIndex(name, SLOT_TAG.length(), name.length()) : -1;
     }
 
@@ -491,6 +510,12 @@ public final class Engine {
         /**
          * Markers swapped for the values.
          */
+        /**
+         * Compiled without MiniMessage: fixed parts and values (stage 2).
+         */
+        record Native(@NotNull List<NativeCompiler.Part> parts) implements Form {
+        }
+
         record Markers(@NotNull Component component) implements Form {
         }
 

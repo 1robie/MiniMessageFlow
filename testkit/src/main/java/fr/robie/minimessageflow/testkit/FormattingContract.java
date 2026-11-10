@@ -293,6 +293,15 @@ public abstract class FormattingContract {
     }
 
     @Test
+    @DisplayName("A value written into a tag can make a standard tag, never a <key> placeholder")
+    void valueNeverNamesKeyTag() {
+        Placeholder values = Placeholder.builder().register("color", "red").register("ref", "secret").register("secret", "!").build();
+        Component result = this.formatter().format("<%color%>a <%ref%>", values, null);
+        assertEquals("a <secret>", PLAIN.serialize(result));
+        assertEquals(NamedTextColor.RED, ComponentRuns.of(result).getFirst().style().color());
+    }
+
+    @Test
     @DisplayName("An escaped \\<key> stays text; a closing </key> stays text, as after a MiniMessage placeholder")
     void escapedAndClosingKeyTags() {
         Placeholder values = Placeholder.of("name", "N");
@@ -347,6 +356,40 @@ public abstract class FormattingContract {
             messages.add(message.toString());
         }
         return messages;
+    }
+
+    /**
+     * Pieces made of the tags an engine may compile without MiniMessage, written every way MiniMessage accepts
+     * (aliases, negations, quotes, escapes, upper case), and text that only looks like a tag.
+     */
+    private static final String[] NATIVE_PIECES = {
+            "Hi ", "x", " ", "<red>", "</red>", "<RED>", "<bold>", "</bold>", "<b>", "</b>", "<!italic>", "<italic:false>",
+            "<u>", "</u>", "<st>", "<obf>", "<em>", "</em>", "<reset>", "<newline>", "<br>", "<#ff00aa>", "</#ff00aa>",
+            "<#FF00AA>", "<color:#00ff00>", "<color:blue>", "<c:gold>", "<colour:red>", "</color>", "</c>", "<grey>",
+            "<dark_grey>", "<click:run_command:'/a'>", "<click:suggest_command:/b>", "<click:open_url:'https://x.y/z'>",
+            "<click:copy_to_clipboard:c>", "</click>", "<hover:show_text:'<red>hi'>", "<hover:show_text:\"q\">",
+            "<hover:show_text:'a<bold>b'>", "</hover>", "<insert:ins>", "</insert>", "%a%", "%b%", "%c%", "<a>", "<c>",
+            "<missing>", "</missing>", "</a>", "\\<red>", "\\\\", "\\x", "<", ">", "<>", "</>", "&c", "&l", "&r",
+            "#123abc", "<a:upper>", "%g%", "<g>", "<bold:true>", "<click:run_command:'it\\'s'>", "<red:x>", "<my tag>",
+            "<!red>", "<newline:x>", "<#12345>", "<color:nope>", "</nope>",
+    };
+
+    @Test
+    @DisplayName("Same result as the reference formatter on messages of native tags")
+    void sameAsReferenceNativeTags() {
+        Placeholder values = randomValues();
+        TestFormatter reference = new ReferenceFormatter(randomGlobals());
+        TestFormatter formatter = this.formatter(randomGlobals());
+        Random random = new Random(3);
+        for (int n = 0; n < 20_000; n++) {
+            StringBuilder builder = new StringBuilder();
+            for (int i = random.nextInt(10); i >= 0; i--) {
+                builder.append(NATIVE_PIECES[random.nextInt(NATIVE_PIECES.length)]);
+            }
+            String message = builder.toString();
+            List<ComponentRuns.Run> expected = ComponentRuns.of(reference.format(message, values, null));
+            assertEquals(expected, ComponentRuns.of(formatter.format(message, values, null)), message);
+        }
     }
 
     @Test

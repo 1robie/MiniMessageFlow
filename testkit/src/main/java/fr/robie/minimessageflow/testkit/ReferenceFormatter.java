@@ -17,8 +17,10 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * How formatting reads, done the slow and obvious way: every call goes through {@code MiniMessage.deserialize},
@@ -30,6 +32,7 @@ import java.util.Map;
  *     <li>a value is the call's, else a global's: global text is formatted, parsed on its own (its colours and
  *     unclosed tags end with it), with the marker noncharacters {@code U+FDD0}/{@code U+FDD1} removed;</li>
  *     <li>a {@code <key>} tag that is not a standard tag and has a value is that value ({@code <key:modifier:arg>}
+ *     written in the message itself (a value written into a tag, as in {@code <%g%>}, never names one)
  *     for modifiers); without a value it is whatever MiniMessage makes of an unknown tag;</li>
  *     <li>legacy colours become MiniMessage tags ({@link LegacyColors}), then MiniMessage parses with the standard
  *     tags.</li>
@@ -81,10 +84,13 @@ public final class ReferenceFormatter implements TestFormatter {
             return "<" + tagName + ">";
         });
         Map<String, String> ownTags = Map.copyOf(tagNames);
+        // Only a tag written in the message itself can be a <key> placeholder: a value written into a tag (<%g%>) never
+        // names one.
+        Set<String> written = writtenTagNames(message);
         TagResolver keyTags = new TagResolver() {
             @Override
             public @Nullable Tag resolve(@NotNull String name, @NotNull ArgumentQueue arguments, @NotNull Context ctx) {
-                if (STANDARD.has(name) || ownTags.containsValue(name)) {
+                if (STANDARD.has(name) || ownTags.containsValue(name) || !written.contains(name)) {
                     return null;
                 }
                 Component value = ReferenceFormatter.this.value(key(name, arguments), placeholders, viewer);
@@ -98,6 +104,27 @@ public final class ReferenceFormatter implements TestFormatter {
         };
         tags.resolver(keyTags);
         return MINI_MESSAGE.deserialize(LegacyColors.toMiniMessage(stripMarkers(text)), tags.build());
+    }
+
+    /**
+     * The names written right after a {@code <} in the message, lower case.
+     */
+    private static @NotNull Set<String> writtenTagNames(@NotNull String message) {
+        Set<String> names = new HashSet<>();
+        for (int i = message.indexOf('<'); i >= 0; i = message.indexOf('<', i + 1)) {
+            int end = i + 1;
+            while (end < message.length() && isNameChar(message.charAt(end))) {
+                end++;
+            }
+            if (end > i + 1) {
+                names.add(message.substring(i + 1, end).toLowerCase(Locale.ROOT));
+            }
+        }
+        return names;
+    }
+
+    private static boolean isNameChar(char c) {
+        return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' || c == '-';
     }
 
     /**

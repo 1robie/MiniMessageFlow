@@ -170,12 +170,24 @@ class EngineTest {
     }
 
     @Test
-    @DisplayName("Common messages swap markers: no parse per render")
-    void fastPath() {
+    @DisplayName("Messages of native tags compile without MiniMessage")
+    void nativePath() {
         for (String message : new String[]{"Hi %name%", "<red>Hi <bold>%name%</bold> &a%n.comma%", "<name> joined",
-                "<click:run_command:'/help'><u>%a%</u></click> <b>%b%</b>", "%a%%b%%a%", "<lang:block.minecraft.stone> %a%"}) {
+                "<click:run_command:'/help'><u>%a%</u></click> <b>%b%</b>", "%a%%b%%a%",
+                "<green>%item%</green> for <gold>%price.comma%</gold> <click:run_command:'/buy 42'>[Buy]",
+                "<hover:show_text:'<red>Info'><!bold>%a%</hover> <#ff00aa>x<reset>%b%", "&c[%rank%] &f%name%"}) {
+            assertInstanceOf(Engine.Form.Native.class, this.form(message), message);
+        }
+    }
+
+    @Test
+    @DisplayName("Messages with other tags swap markers in MiniMessage's tree: no parse per render either")
+    void markerPath() {
+        for (String message : new String[]{"<lang:block.minecraft.stone> %a%", "<font:uniform>%a%</font>", "a < b > %c%"}) {
             assertInstanceOf(Engine.Form.Markers.class, this.form(message), message);
         }
+        MiniMessageFlow noNative = MiniMessageFlow.builder().nativeCompiler(false).build();
+        assertInstanceOf(Engine.Form.Markers.class, ((CompiledTemplate) noNative.compile("Hi %name%")).baseForm());
     }
 
     @Test

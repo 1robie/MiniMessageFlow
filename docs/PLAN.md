@@ -343,6 +343,45 @@ Each stage is a release of the library and has an exit criterion.
 2. **Own scanner and compiler** for the native set without slots in arguments (a placeholder in a tag argument
    or under a gradient still sends the message to MiniMessage). Legacy codes in the scanner. Passes.
    *Exit*: equivalence suite and fuzzing green on the matrix; "3 placeholders + click" target met.
+
+   **Done 2026-11-10.** 142 tests on all 5 Adventure versions; the contract (28 cases, 30,000 random messages) passes
+   against the native compiler with its compile-time check off.
+   - **`core/NativeCompiler`**: one pass over the text (tags with quoted arguments and escapes), a tree of
+     elements, then passes: fold every subtree without a value into one fixed component, flatten colours and
+     decorations onto values, keep click/hover/insertion on a group around values (not copied onto leaves), join
+     neighbouring fixed parts. Rendering builds the component from the parts: no parse, no `compact()`.
+   - **Native set**: named and hex colours (`grey` aliases), `color`/`colour`/`c`, decorations and their short forms,
+     `<!x>`, `<x:false>`, `<x:true>`, `reset`, `newline`/`br`, `click` (run/suggest command, open URL, copy), `hover`
+     with `show_text` (its text compiled natively too, without values), `insert`, `%key%` and `<key>`. Anything else
+     (gradient, font, translatable, `<pre>`, a user tag, `<!red>`, `<#12345>`, `<red:x>`, a `<` that is not a tag
+     before a later `>`...) leaves the message to the stage 1 engine.
+   - **Checked at compile**: a native template is rendered with the probe values and compared with MiniMessage's
+     parse of the same message (`core/Rendering`, the runs rule of `ComponentRuns`); if they differ, the message
+     stays with MiniMessage. `verifyNative(false)` turns it off (tests). So a native compiler bug, or a later Adventure
+     reading a tag differently, costs speed, never output.
+   - **MiniMessage's rules found by probing** (same on 4.17 and 5.2): only `\<` and `\\` are escapes; a closing tag
+     matches its opening tag by exact name (`</bold>` does not close `<b>`) and closes the tags opened after it; a
+     closing tag that matches nothing is text; tag names are case-insensitive; `<>` and `</>` are text.
+   - **New rule, in the contract**: a value written into a tag can make a standard tag (`<%color%>` → `<red>`) but
+     never a `<key>` placeholder (`<%ref%>` stays text). The stage 1 engine already behaved so; the reference now does.
+   - **Not done as planned**: legacy codes are still converted to tags before the scan (`LegacyCodes`), not read by
+     the scanner: it only costs compile time and keeps the conversion identical for both engines. Cold compile is
+     slower than MiniMessage alone, not ≤: discovery and the check each parse with MiniMessage. Both belong to the
+     moment the check can be turned off by default.
+   - `ClickEvent` is generic in Adventure 5: core builds a click into a `Style` and never names the type (the matrix
+     failed compiling on 5.2 until then).
+
+   JMH, JDK 25, this machine, short runs (`-wi 3 -i 5 -f 1`), same run for every row:
+
+   | Case | Stage 2 (native) | Stage 1 (markers) | `MiniMessage.deserialize` |
+   |---|---:|---:|---:|
+   | 3 placeholders + click (the target, < 0.5 µs) | **148 ns**, 680 B | | |
+   | shop line, 2 placeholders + `.comma` + click | 247 ns, 1.1 KB | 962 ns, 3.9 KB | 4.65 µs, 16.2 KB |
+   | same with `<key>` tags | 228 ns | | |
+   | global placeholder (isolated) | 156 ns, 848 B | 870 ns | |
+   | click argument, same value | 166 ns, 880 B | 400 ns | |
+   | static `render()` / `format(String)` | 0.52 ns / 2.9 ns, 0 B | | 1.44 µs |
+   | click argument / gradient, changing value | 4.5 µs / 4.5 µs | | (stage 3) |
 3. **Slots and transforms**: `Event` and `Transform` nodes (click/hover arguments, gradients over changing
    values); typed fast path.
    *Exit*: the two "value changes" targets met.
