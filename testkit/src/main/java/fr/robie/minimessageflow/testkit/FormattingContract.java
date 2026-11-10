@@ -8,6 +8,7 @@ import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.event.ClickEvent;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.format.TextDecoration;
+import net.kyori.adventure.text.minimessage.MiniMessage;
 import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
 import org.jetbrains.annotations.NotNull;
 import org.junit.jupiter.api.DisplayName;
@@ -213,6 +214,95 @@ public abstract class FormattingContract {
         assertEquals("0 X", PLAIN.serialize(result));
     }
 
+    // --- global text is isolated (changed from MessageFlow 1.1, where it was pasted into the message) ------------
+
+    @Test
+    @DisplayName("Colours and unclosed tags in global text end with it")
+    void globalTextIsolated() {
+        Component result = this.formatter(Placeholder.of("prefix", "&c[Admin] <bold>"))
+                .format("%prefix%%player%", Placeholder.of("player", "Steve"), null);
+        assertEquals("[Admin] Steve", PLAIN.serialize(result));
+        List<ComponentRuns.Run> runs = ComponentRuns.of(result);
+        assertEquals(2, runs.size(), runs::toString);
+        assertEquals(NamedTextColor.RED, runs.get(0).style().color());
+        assertNull(runs.get(1).style().color(), "the name after the prefix is not red");
+        assertEquals(TextDecoration.State.FALSE, runs.get(1).style().decoration(TextDecoration.BOLD), "nor bold");
+    }
+
+    @Test
+    @DisplayName("A <reset> in global text doesn't reset the message around it")
+    void globalResetIsolated() {
+        Component result = this.formatter(Placeholder.of("prefix", "<reset>x "))
+                .format("<green>%prefix%Hi", Placeholder.empty(), null);
+        // The global's text is placed inside the green message, so it is green too; its <reset> resets only itself.
+        assertEquals(List.of("x Hi"), ComponentRuns.of(result).stream().map(ComponentRuns.Run::content).toList());
+        assertEquals(NamedTextColor.GREEN, ComponentRuns.of(result).getFirst().style().color());
+    }
+
+    @Test
+    @DisplayName("Inside a tag, global text is its plain text")
+    void globalInsideTag() {
+        Component result = this.formatter(Placeholder.of("server", "&aLobby"))
+                .format("<click:run_command:'/server %server%'>go</click>", Placeholder.empty(), null);
+        assertEquals(ClickEvent.runCommand("/server Lobby"), click(result));
+    }
+
+    // --- <key> placeholders -------------------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("<key> is the same placeholder as %key%, and its value stays text")
+    void keyTags() {
+        Component result = this.formatter().format("Hi <name>! %name% <bold><name></bold>", Placeholder.of("name", "<red>Steve"), null);
+        assertEquals("Hi <red>Steve! <red>Steve <red>Steve", PLAIN.serialize(result));
+        assertTrue(flatten(result).stream().noneMatch(c -> NamedTextColor.RED.equals(c.color())));
+    }
+
+    @Test
+    @DisplayName("<key:modifier:argument> applies modifiers")
+    void keyTagModifiers() {
+        Component result = this.formatter().format("<price:comma> <n:plural:item:items> <name:upper:max:3>",
+                Placeholder.builder().register("price", "1500").register("n", "2").register("name", "steve").build(), null);
+        assertEquals("1,500 items STE", PLAIN.serialize(result));
+    }
+
+    @Test
+    @DisplayName("<key> with a global value; a viewer value")
+    void keyTagGlobalAndViewer() {
+        Component result = this.formatter(Placeholder.of("server", "<gold>Lobby"))
+                .format("<who> on <server>", Placeholder.of("who", FormattingContract::name), viewer("Alex"));
+        assertEquals("Alex on Lobby", PLAIN.serialize(result));
+        assertTrue(flatten(result).stream().anyMatch(c -> NamedTextColor.GOLD.equals(c.color())));
+    }
+
+    @Test
+    @DisplayName("Standard tags win over a placeholder of the same name, which only %key% reaches")
+    void standardTagsWin() {
+        Component result = this.formatter().format("<red>a %red%", Placeholder.of("red", "x"), null);
+        assertEquals("a x", PLAIN.serialize(result));
+        assertEquals(NamedTextColor.RED, ComponentRuns.of(result).getFirst().style().color());
+    }
+
+    @Test
+    @DisplayName("Without a value, a <key> reads exactly as MiniMessage reads an unknown tag")
+    void unknownKeyTags() {
+        for (String message : List.of("a <missing> b", "<missing:x:y>c</missing>", "<red>x</missing>y", "I <3 you",
+                "<name>a</name>b", "<bold><missing>b</bold>")) {
+            Component expected = MiniMessage.miniMessage().deserialize(message);
+            assertEquals(ComponentRuns.of(expected), ComponentRuns.of(this.formatter().format(message, Placeholder.empty(), null)), message);
+        }
+    }
+
+    @Test
+    @DisplayName("An escaped \\<key> stays text; a closing </key> stays text, as after a MiniMessage placeholder")
+    void escapedAndClosingKeyTags() {
+        Placeholder values = Placeholder.of("name", "N");
+        assertEquals(ComponentRuns.of(MiniMessage.miniMessage().deserialize("\\<name> N")),
+                ComponentRuns.of(this.formatter().format("\\<name> <name>", values, null)));
+        assertEquals(ComponentRuns.of(MiniMessage.miniMessage().deserialize("<name>a</name>b",
+                        net.kyori.adventure.text.minimessage.tag.resolver.Placeholder.unparsed("name", "N"))),
+                ComponentRuns.of(this.formatter().format("<name>a</name>b", values, null)));
+    }
+
     // --- against the reference ----------------------------------------------------------------------------------
 
     /**
@@ -224,7 +314,19 @@ public abstract class FormattingContract {
             "<click:run_command:'/tp %a%'>", "</click>", "<hover:show_text:'hi %b%'>", "</hover>",
             "<hover:show_text:'<gold>%a%'>", "%a%", "%a%", "%b%", "%c%", "%missing%", "&c", "&l", "#ff00aa",
             "<color:#00ff00>", "</color>", "<mfph_3>", "<insert:'%b%'>", "</insert>", "\\<red>", "50% ",
+            "<a>", "</a>", "<b:upper>", "<c>", "<missing>", "</missing>", "<hover:show_text:'<a>'>", "%a.upper%",
+            "%g%", "<g>", "%h.upper%", "<click:run_command:'/s %g%'>", "\\<a>",
     };
+
+    /**
+     * Globals for the random messages: one that leaves a colour and a tag open, one plain.
+     */
+    private static @NotNull Placeholder randomGlobals() {
+        return Placeholder.builder()
+                .register("g", "<red>G&l")
+                .register("h", "plain")
+                .build();
+    }
 
     private static @NotNull Placeholder randomValues() {
         return Placeholder.builder()
@@ -251,9 +353,9 @@ public abstract class FormattingContract {
     @DisplayName("Same result as the reference formatter, first and second time")
     void sameAsReference() {
         Placeholder values = randomValues();
-        TestFormatter reference = new ReferenceFormatter(Placeholder.empty());
-        TestFormatter formatter = this.formatter();
-        for (String message : randomMessages(1, 5_000)) {
+        TestFormatter reference = new ReferenceFormatter(randomGlobals());
+        TestFormatter formatter = this.formatter(randomGlobals());
+        for (String message : randomMessages(1, 10_000)) {
             List<ComponentRuns.Run> expected = ComponentRuns.of(reference.format(message, values, null));
             assertEquals(expected, ComponentRuns.of(formatter.format(message, values, null)), message);
             assertEquals(expected, ComponentRuns.of(formatter.format(message, values, null)), "again: " + message);

@@ -1,5 +1,6 @@
 package fr.robie.minimessageflow.core;
 
+import net.kyori.adventure.text.Component;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 
@@ -34,6 +35,12 @@ public interface AdventureBridge {
      * Whether Adventure has virtual components ({@code <gradient>} keeps one, Adventure 4.18+).
      */
     boolean hasVirtualComponents();
+
+    /**
+     * Whether a component is a virtual component ({@code <gradient>} and {@code <rainbow>} keep one, with its own
+     * copy of what they wrap). Always false where Adventure has none.
+     */
+    boolean isVirtual(@NotNull Component component);
 
     /**
      * For logs and errors: {@code "Adventure 4 (shadow colour: no, virtual components: no)"}.

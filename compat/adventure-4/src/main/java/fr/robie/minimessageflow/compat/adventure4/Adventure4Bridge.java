@@ -4,6 +4,8 @@ import fr.robie.minimessageflow.core.AdventureBridge;
 import fr.robie.minimessageflow.core.Classes;
 import net.kyori.adventure.text.Component;
 import org.jetbrains.annotations.ApiStatus;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * Adventure 4.17 - 4.x. Features added during 4.x are detected once, here.
@@ -17,11 +19,22 @@ public final class Adventure4Bridge implements AdventureBridge {
     static final String ADVENTURE_4_ONLY = "net.kyori.adventure.audience.MessageType";
 
     private final boolean shadowColor;
-    private final boolean virtualComponents;
+    /**
+     * {@code VirtualComponent}, or null before 4.18: naming the class would fail to load there.
+     */
+    private final @Nullable Class<?> virtualComponent;
 
     public Adventure4Bridge() {
         this.shadowColor = Classes.exists("net.kyori.adventure.text.format.ShadowColor", Component.class);
-        this.virtualComponents = Classes.exists("net.kyori.adventure.text.VirtualComponent", Component.class);
+        this.virtualComponent = find("net.kyori.adventure.text.VirtualComponent");
+    }
+
+    private static @Nullable Class<?> find(@NotNull String name) {
+        try {
+            return Class.forName(name, false, Component.class.getClassLoader());
+        } catch (ClassNotFoundException | LinkageError e) {
+            return null;
+        }
     }
 
     @Override
@@ -41,6 +54,11 @@ public final class Adventure4Bridge implements AdventureBridge {
 
     @Override
     public boolean hasVirtualComponents() {
-        return this.virtualComponents;
+        return this.virtualComponent != null;
+    }
+
+    @Override
+    public boolean isVirtual(@NotNull Component component) {
+        return this.virtualComponent != null && this.virtualComponent.isInstance(component);
     }
 }

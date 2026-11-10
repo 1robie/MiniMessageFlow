@@ -6,7 +6,8 @@ plugins {
 description = "JMH benchmarks, run on demand: ./gradlew :benchmarks:jmh"
 
 dependencies {
-    jmh(project(":core"))
+    // What users depend on: core with every bridge.
+    jmh(project(":minimessageflow"))
     jmh(libs.adventure.api)
     jmh(libs.adventure.minimessage)
     jmh(libs.adventure.serializer.plain)

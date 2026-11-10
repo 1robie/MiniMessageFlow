@@ -1,13 +1,15 @@
 plugins {
     id("minimessageflow.java")
     alias(libs.plugins.shadow)
+    `maven-publish`
 }
 
 description = "The one artifact users depend on: api + core + every compat module in one jar."
 
 dependencies {
     api(project(":api"))
-    implementation(project(":core"))
+    // MiniMessageFlow, the entry point, is in core: users compile against it.
+    api(project(":core"))
     implementation(project(":compat:adventure-4"))
     implementation(project(":compat:adventure-5"))
 
@@ -30,4 +32,14 @@ tasks.shadowJar {
 
 tasks.assemble {
     dependsOn(tasks.shadowJar)
+}
+
+// Local only for now: ./gradlew publishToMavenLocal (Maven Central comes with the first release).
+publishing {
+    publications {
+        create<MavenPublication>("maven") {
+            artifactId = "minimessageflow"
+            from(components["shadow"])
+        }
+    }
 }

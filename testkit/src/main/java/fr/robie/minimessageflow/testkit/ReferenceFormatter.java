@@ -6,7 +6,10 @@ import fr.robie.minimessageflow.PlaceholderValue;
 import fr.robie.minimessageflow.internal.PlaceholderScanner;
 import net.kyori.adventure.pointer.Pointered;
 import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.minimessage.Context;
 import net.kyori.adventure.text.minimessage.MiniMessage;
+import net.kyori.adventure.text.minimessage.tag.Tag;
+import net.kyori.adventure.text.minimessage.tag.resolver.ArgumentQueue;
 import net.kyori.adventure.text.minimessage.tag.resolver.TagResolver;
 import net.kyori.adventure.text.minimessage.tag.standard.StandardTags;
 import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
@@ -14,35 +17,41 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.HashMap;
+import java.util.Locale;
 import java.util.Map;
 
 /**
- * MessageFlow 1.1's formatting, done the slow and obvious way: every call goes through
- * {@code MiniMessage.deserialize}, nothing is cached. Engines are compared with it.
+ * How formatting reads, done the slow and obvious way: every call goes through {@code MiniMessage.deserialize},
+ * nothing is cached. Engines are compared with it.
  * <ol>
- *     <li>each local placeholder ({@code %key%}, with modifiers) becomes a MiniMessage placeholder tag holding its
- *     value as a component, so a value is never parsed; inside a tag it is written as text, without the characters
- *     that could end the tag or be read again ({@code < > ' " \ % & §});</li>
- *     <li>global placeholders are then replaced by their text, which is parsed with the message, and the marker
- *     noncharacters {@code U+FDD0}/{@code U+FDD1} are removed from it;</li>
- *     <li>legacy colours become MiniMessage tags ({@link LegacyColors});</li>
- *     <li>MiniMessage parses the result with the standard tags.</li>
+ *     <li>each {@code %key%} (with modifiers) that has a value becomes a MiniMessage placeholder tag holding the value
+ *     as a component, so a value is never parsed with the message; inside a tag it is written as plain text, without
+ *     the characters that could end the tag or be read again ({@code < > ' " \ % & §});</li>
+ *     <li>a value is the call's, else a global's: global text is formatted, parsed on its own (its colours and
+ *     unclosed tags end with it), with the marker noncharacters {@code U+FDD0}/{@code U+FDD1} removed;</li>
+ *     <li>a {@code <key>} tag that is not a standard tag and has a value is that value ({@code <key:modifier:arg>}
+ *     for modifiers); without a value it is whatever MiniMessage makes of an unknown tag;</li>
+ *     <li>legacy colours become MiniMessage tags ({@link LegacyColors}), then MiniMessage parses with the standard
+ *     tags.</li>
  * </ol>
- * From {@code TemplateCacheTest.OldFormat} and {@code AdventureMessageFormatter} of MessageFlow 1.1.
+ * MessageFlow 1.1 ({@code TemplateCacheTest.OldFormat}) with the two deliberate changes of MiniMessageFlow:
+ * global text is isolated (MessageFlow pasted it into the message), and {@code <key>} placeholders.
  */
 public final class ReferenceFormatter implements TestFormatter {
 
+    private static final TagResolver STANDARD = StandardTags.defaults();
     private static final MiniMessage MINI_MESSAGE = MiniMessage.builder()
-            .tags(TagResolver.builder().resolver(StandardTags.defaults()).build())
+            .tags(TagResolver.builder().resolver(STANDARD).build())
             .build();
     private static final PlainTextComponentSerializer PLAIN = PlainTextComponentSerializer.plainText();
-    private static final String TAG_PREFIX = "mfph_";
+    // Not mfph_ as in MessageFlow 1.1: a message that writes <mfph_3> itself would get a value there.
+    private static final String TAG_PREFIX = "mmfref_";
 
     private final Placeholder globals;
 
     /**
-     * @param globals placeholders resolved after the local ones, as text parsed with the message (MessageFlow's
-     *                global placeholders)
+     * @param globals placeholders resolved after the call's ones, as formatted text (MessageFlow's global
+     *                placeholders)
      */
     public ReferenceFormatter(@NotNull Placeholder globals) {
         this.globals = globals;
@@ -56,7 +65,7 @@ public final class ReferenceFormatter implements TestFormatter {
         String text = PlaceholderScanner.replace(message, (key, start) -> {
             state[0] = tagDepth(message, state[1], start, state[0]);
             state[1] = start;
-            Component component = local(key, placeholders, viewer);
+            Component component = this.value(key, placeholders, viewer);
             if (component == null) {
                 return null;
             }
@@ -71,26 +80,73 @@ public final class ReferenceFormatter implements TestFormatter {
             }
             return "<" + tagName + ">";
         });
-        text = stripMarkers(this.globals.parse(text, viewer));
-        return MINI_MESSAGE.deserialize(LegacyColors.toMiniMessage(text), tags.build());
+        Map<String, String> ownTags = Map.copyOf(tagNames);
+        TagResolver keyTags = new TagResolver() {
+            @Override
+            public @Nullable Tag resolve(@NotNull String name, @NotNull ArgumentQueue arguments, @NotNull Context ctx) {
+                if (STANDARD.has(name) || ownTags.containsValue(name)) {
+                    return null;
+                }
+                Component value = ReferenceFormatter.this.value(key(name, arguments), placeholders, viewer);
+                return value == null ? null : Tag.selfClosingInserting(value);
+            }
+
+            @Override
+            public boolean has(@NotNull String name) {
+                return !STANDARD.has(name) && !ownTags.containsValue(name);
+            }
+        };
+        tags.resolver(keyTags);
+        return MINI_MESSAGE.deserialize(LegacyColors.toMiniMessage(stripMarkers(text)), tags.build());
     }
 
     /**
-     * The value of a local placeholder, or of a local placeholder with modifiers ({@code %price.comma%}).
+     * The value of a key: the call's value (also with modifiers), else the global's formatted text, parsed on its own.
      */
-    private static @Nullable Component local(@NotNull String key, @NotNull Placeholder placeholders, @Nullable Pointered viewer) {
+    private @Nullable Component value(@NotNull String key, @NotNull Placeholder placeholders, @Nullable Pointered viewer) {
         PlaceholderValue value = placeholders.get(key);
         if (value != null) {
             return toComponent(key, value, viewer);
         }
-        if (key.indexOf('.') < 0) {
-            return null;
+        if (key.indexOf('.') > 0) {
+            String text = PlaceholderModifiers.resolve(key, k -> {
+                PlaceholderValue base = placeholders.get(k);
+                return base == null ? null : PLAIN.serialize(toComponent(k, base, viewer));
+            });
+            if (text != null) {
+                return Component.text(text);
+            }
         }
-        String text = PlaceholderModifiers.resolve(key, k -> {
-            PlaceholderValue base = placeholders.get(k);
-            return base == null ? null : PLAIN.serialize(toComponent(k, base, viewer));
+        String global = PlaceholderModifiers.resolve(key, k -> {
+            PlaceholderValue base = this.globals.get(k);
+            if (base == null) {
+                return null;
+            }
+            if (base instanceof PlaceholderValue.ComponentValue(Component component)) {
+                return MiniMessage.miniMessage().serialize(component);
+            }
+            try {
+                return base.evaluate(viewer);
+            } catch (Exception e) {
+                return null;
+            }
         });
-        return text != null ? Component.text(text) : null;
+        return global == null ? null : MINI_MESSAGE.deserialize(LegacyColors.toMiniMessage(stripMarkers(global)));
+    }
+
+    /**
+     * {@code <n:plural:item:items>} reads {@code n.plural:item:items}: an argument that is a modifier's name starts a
+     * modifier, any other belongs to the one before it.
+     */
+    private static @NotNull String key(@NotNull String name, @NotNull ArgumentQueue arguments) {
+        StringBuilder key = new StringBuilder(name);
+        while (arguments.hasNext()) {
+            String argument = arguments.pop().value();
+            boolean modifier = !argument.isEmpty() && argument.equals(argument.toLowerCase(Locale.ROOT))
+                    && PlaceholderModifiers.get(argument) != null;
+            key.append(modifier ? '.' : ':').append(argument);
+        }
+        return key.toString();
     }
 
     private static @NotNull Component toComponent(@NotNull String key, @NotNull PlaceholderValue value, @Nullable Pointered viewer) {

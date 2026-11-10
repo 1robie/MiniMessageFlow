@@ -13,6 +13,9 @@ dependencies {
     compileOnly(libs.adventure.serializer.plain)
     compileOnly(libs.adventure.serializer.legacy)
 
+    testImplementation(project(":testkit"))
+    testRuntimeOnly(project(":compat:adventure-4"))
+    testRuntimeOnly(project(":compat:adventure-5"))
     testImplementation(libs.adventure.api)
     testImplementation(libs.adventure.minimessage)
     testImplementation(libs.adventure.serializer.plain)

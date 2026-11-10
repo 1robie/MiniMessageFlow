@@ -21,9 +21,9 @@ class AdventureBridgesTest {
     @Test
     @DisplayName("Without any bridge on the class path, the error says what was tried")
     void noBridge() {
-        // core's own tests have no compat module on their class path.
+        // The platform class loader sees neither the bridges nor Adventure.
         IllegalStateException error = assertThrows(IllegalStateException.class,
-                () -> AdventureBridges.select(AdventureBridgesTest.class.getClassLoader()));
+                () -> AdventureBridges.select(ClassLoader.getPlatformClassLoader()));
         assertTrue(error.getMessage().contains("Adventure5Bridge (not on the class path)"), error.getMessage());
         assertTrue(error.getMessage().contains("Adventure4Bridge (not on the class path)"), error.getMessage());
     }

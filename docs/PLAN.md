@@ -210,14 +210,16 @@ one cache lookup per call on top of `render`).
 Both spellings mean the same placeholder: `%player%` and `<player>`, with the same values, resolvers and
 modifiers.
 - **Which `<x>` is a placeholder**: a tag that is not a standard MiniMessage tag (of the running Adventure) and
-  that no user `TagResolver` claims. Standard tags always win: a placeholder named `red` or `bold` is refused when
-  it is registered (`IllegalArgumentException`) and can only be written `%red%`.
+  that no user `TagResolver` claims. Standard tags always win: a placeholder named `red` or `bold` (or `b`, `u`,
+  `i`: MiniMessage's short forms) can only be written `%red%`. It is not refused at registration: `Placeholder` is
+  shared with `%key%` messages, where the name is fine.
 - **Modifiers** use MiniMessage's argument syntax, since `.` is not allowed in a MiniMessage tag name:
   `<price:comma>`, `<name:upper:max:16>`, `<n:plural:item:items>` (same modifiers as `%price.comma%`).
 - **No value at render**: the tag is written back as text (`<player>`), exactly as MiniMessage shows an unknown
   tag, and `%player%` stays `%player%` as today.
-- **Closing tags** (`</player>`) and names in other cases (`<Player>`) behave as in MiniMessage (tag names are
-  case-insensitive, a closing tag of a placeholder is dropped); covered by the equivalence suite.
+- **Closing tags** (`</player>`) and names in other cases (`<Player>`) behave as in MiniMessage: a closing tag
+  after a placeholder stays text, as after a MiniMessage `Placeholder.unparsed` (checked in stage 1; the plan first
+  said it was dropped).
 - **Inside a tag argument** (`<click:run_command:'/tp <player>'>`) it is a `Text slot`, like `%player%`. Plain
   MiniMessage does not do this; it is our one deliberate extension, so the equivalence suite compares those cases
   with the `%player%` form instead of MiniMessage.
@@ -294,6 +296,50 @@ Each stage is a release of the library and has an exit criterion.
    by the template instead of a cache lookup per send. `Parsed` isolation lands here.
    **MessageFlow uses it behind a flag from this stage**, so the API is proven by a real plugin, not only tests.
    *Exit*: MessageFlow's suite green with the flag on; static `render` < 5 ns.
+
+   **Done 2026-11-10.** Both exit criteria met: MessageFlow's 50 tests pass with `formatter.engine: minimessageflow`
+   (1 skipped: it reads the built-in engine's private cache) and without it; static `render` 0.53 ns, 0 B.
+   MiniMessageFlow: 110 tests (contract 27 cases, against the engine and the reference) on all 5 Adventure versions.
+   - **API**: `MiniMessageFlow` (builder: `legacyCodes`, `resolver`, `tags`, cache sizes; `compile`, `format`,
+     `clearCache`), `Template` (`render`, `isStatic`, `source`), `Resolver` (`key, viewer -> formatted text or null`,
+     `Resolver.of(Placeholder)`). `MiniMessageFlow` lives in `core` (same package as `api`): the one jar exposes both.
+   - **Engine** (`core/Engine`): `%key%` outside tags → slot tag `<mmf_slot_N>`; `<key>` claimed by a per-parse
+     `TagResolver` when no standard or user tag has the name; both parse to a marker swapped at render. `%key%` in a tag
+     → text written in at render, compiled once per text (bounded cache). Unknown `<key>` → the message compiled again
+     without claiming it (one variant per set of unknown keys, at most 64 kept).
+   - **Found on the way**: MiniMessage calls a `TagResolver` 2-4 times per tag, differently in 4.17 and 5.2, and
+     parses hovers more than once, so counting markers can't tell whether all can be swapped (MessageFlow 1.1 counted
+     `<mfph_` in the text, which `<key>` tags don't allow). The engine renders both ways once at compile, with unique
+     probe values, and swaps markers only when the results are equal; else it parses with the values (cached by
+     values). Plain messages, colours, clicks, `<lang>` take the fast path; hovers with a value, gradients, translatable
+     arguments with a value don't.
+   - **Resolver text is isolated** (the planned change): parsed on its own, cached by text, inserted like a component;
+     in a tag argument only its plain text. The contract and the reference changed with it.
+   - **Limits kept for later stages**: `<key>` inside a tag argument stays text, as in MiniMessage (stage 3 text
+     slots); a key with whitespace or one of `< > & § \ ' " #` is never a placeholder (so the scan finds the same tokens
+     whatever the values); `mmf_slot_N` is a reserved tag name; the caches evict about a quarter when full, without
+     access order.
+   - **The reference had MessageFlow 1.1's collision**: its `mfph_N` tags took over a `<mfph_3>` the message wrote
+     itself. It uses `mmfref_N` now; the engine never had it.
+   - **MessageFlow** (branch `feat/minimessageflow-engine`): `formatter.engine` setting (default `messageflow`, or the
+     `messageflow.formatter.engine` system property); `TextResolver.resolvesKeys()` (true for global placeholders and
+     PlaceholderAPI, asked one `%key%` at a time); other resolvers still run on the whole text first; MiniMessageFlow
+     shaded and relocated to `fr.robie.messageflow.libs.minimessageflow` (bridge lookup checked in the shaded jar on
+     Paper 1.21.11's Adventure); surefire runs the suite a second time with the flag on. It depends on
+     `0.1.0-SNAPSHOT` from the local Maven repository: a JitPack build of that branch fails until MiniMessageFlow is
+     published.
+
+   JMH, JDK 25, this machine, short runs (`-wi 3 -i 5 -f 1`, ±10-50%):
+
+   | Case | MiniMessageFlow | Allocated |
+   |---|---:|---:|
+   | static, `render()` | 0.53 ns | 0 B |
+   | static, `format(String)` | 2 ns | 0 B |
+   | shop line, 2 placeholders + click (`%key%` or `<key>`) | 0.95-1.0 µs | 3.9 KB |
+   | `MiniMessage.deserialize`, same shop line | 4.7-5.4 µs | 16.1 KB |
+   | global placeholder (isolated) | 0.87 µs | 4.0 KB |
+   | click argument, same value / changing | 0.40 µs / 4.4 µs | 1.6 KB / 13.4 KB |
+   | gradient, same value / changing | 29 ns / 4.8 µs | 96 B / 13.9 KB |
 2. **Own scanner and compiler** for the native set without slots in arguments (a placeholder in a tag argument
    or under a gradient still sends the message to MiniMessage). Legacy codes in the scanner. Passes.
    *Exit*: equivalence suite and fuzzing green on the matrix; "3 placeholders + click" target met.
