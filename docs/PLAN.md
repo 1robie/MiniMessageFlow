@@ -385,6 +385,45 @@ Each stage is a release of the library and has an exit criterion.
 3. **Slots and transforms**: `Event` and `Transform` nodes (click/hover arguments, gradients over changing
    values); typed fast path.
    *Exit*: the two "value changes" targets met.
+
+   **Done 2026-11-10** (without the typed fast path, see below). 152 tests on all 5 Adventure versions.
+   - **Event arguments**: a message whose values sit in a `click` value or an `insert` argument is compiled once;
+     the argument is literal pieces and values, and only the event is built at render. A value is written in as the
+     stage 1 engine writes it (stripped of `< > ' " \ % & §`, legacy `#rrggbb` converted with the character before it
+     as context). Stays on the stage 1 path (text compiled per value): a value touching `&`, `§`, `#`, a hex digit or
+     another value; a value in a hover, a colour or gradient argument; a click with values inside a gradient. Falls
+     back for one render: in an argument without quotes, a value with `:` or a `<` from a legacy colour (it would
+     change how MiniMessage splits the tag); an event Adventure refuses (5.1+ checks URLs).
+   - **Gradients and rainbows** (`<gradient:colors...[:phase]>`, `<rainbow[:!][phase]>`, native also without values):
+     the characters are coloured at render with MiniMessage's maths, ported from `GradientTag`/`RainbowTag` (identical
+     from 4.17 to 5.2; only the argument parsing order changed, and the native compiler refuses arguments where the
+     two orders differ). Inside one: text, values, decorations, fixed events; a colour, another gradient or a click
+     with values leaves the message to MiniMessage. A value with its own style or children falls back for that render
+     (MiniMessage skips colouring it), parsed with the values and cached.
+   - **Found on the way, a stage 1 bug**: on Adventure 4.17 (no virtual component) a `<rainbow>` or `<gradient>` over a
+     value was given the marker form, because the probe values were as long as a marker and coloured the same. The
+     compile-time checks (marker swap and native) now render with two probe sets of different lengths.
+   - **Contract**: gradients and rainbows of every kind over values of 0 to 30 characters (with non-BMP code points),
+     styled values under a gradient, click/insert arguments with awkward values; random pieces with gradient
+     arguments. All against the reference, with the compile-time check off.
+   - **Not done: the typed fast path** (`Slot<T>`, array-backed values). With values resolved by name in ~150-250 ns
+     per render, the map lookups it saves are a small part; it would add a second API for every caller to learn.
+     Left for when a profile on a real server asks for it.
+
+   JMH, JDK 25, this machine, short runs (`-wi 3 -i 5 -f 1`), same run for every row:
+
+   | Case | Stage 3 | Stage 2 | Target |
+   |---|---:|---:|---:|
+   | click argument, value changes every send | **342 ns**, 1.9 KB | 4.5 µs, 15 KB | < 1 µs |
+   | gradient, value changes every send | **486 ns**, 2.7 KB | 4.5 µs, 14 KB | < 2 µs |
+   | click argument, same value | 242 ns | 166 ns (cache hit) | |
+   | gradient, same value | 504 ns | 29 ns (cache hit) | |
+   | 3 placeholders + click | 138 ns | 148 ns | < 0.5 µs |
+   | `MiniMessage.deserialize`, shop line | 4.67 µs | | |
+
+   The cost of the change: a gradient or click argument whose value repeats was a cache hit and is now built each
+   render (still well under the targets); a value that changes no longer fills a cache. A small cache by values in
+   front of a transform would win both, if a real server shows it matters.
 4. **MessageFlow on MiniMessageFlow by default** (MessageFlow 1.2.0): `AdventureMessageFormatter` becomes a thin adapter
    (sending, titles, boss bars, sounds stay in MessageFlow); each registered message is compiled on `reload()`;
    `Placeholder` kept (delegating) so plugins don't break. What MessageFlow does with its own

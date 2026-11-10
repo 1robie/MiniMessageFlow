@@ -33,11 +33,16 @@ final class CompiledTemplate implements Template {
     private final @Nullable List<Object> pieces;
     private final List<String> inlineKeys;
     private final Engine.Form base;
+    /**
+     * The message with values in a click or insert argument, compiled once (stage 3), or null.
+     */
+    private final @Nullable Engine.Form.Native inline;
     private final boolean isStatic;
     private final ConcurrentHashMap<Set<Integer>, Engine.Form> variants = new ConcurrentHashMap<>();
 
     CompiledTemplate(@NotNull Engine engine, @NotNull String source, @NotNull String compiled, @NotNull Engine.Slots slots,
-                     @Nullable List<Object> pieces, @NotNull List<String> inlineKeys, @NotNull Engine.Form base) {
+                     @Nullable List<Object> pieces, @NotNull List<String> inlineKeys, @NotNull Engine.Form base,
+                     @Nullable Engine.Form.Native inline) {
         this.engine = engine;
         this.source = source;
         this.compiled = compiled;
@@ -45,6 +50,7 @@ final class CompiledTemplate implements Template {
         this.pieces = pieces;
         this.inlineKeys = inlineKeys;
         this.base = base;
+        this.inline = inline;
         this.isStatic = pieces == null && slots.size() == 0 && base instanceof Engine.Form.Static;
     }
 
@@ -92,6 +98,12 @@ final class CompiledTemplate implements Template {
                 String key = this.inlineKeys.get(i);
                 inline[i] = Engine.inlineText(key, this.engine.value(key, placeholders, viewer));
             }
+            if (this.inline != null && unclaimed.isEmpty()) {
+                Component rendered = this.engine.renderInline(this.inline, values, inline);
+                if (rendered != null) {
+                    return rendered;
+                }
+            }
             form = this.engine.inlineForm(Engine.join(this.pieces, inline), this.slots, unclaimed);
         }
         return this.engine.render(form, values);
@@ -112,6 +124,10 @@ final class CompiledTemplate implements Template {
     /**
      * How the message renders when every value is known and nothing is in a tag argument (for tests).
      */
+    @Nullable Engine.Form.Native inlineForm() {
+        return this.inline;
+    }
+
     @NotNull Engine.Form baseForm() {
         return this.base;
     }

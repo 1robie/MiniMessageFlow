@@ -54,17 +54,34 @@ class EngineTest {
     }
 
     @Test
-    @DisplayName("A gradient over a placeholder is reused for the same values, parsed again for new ones")
-    void gradientCachedByValues() {
+    @DisplayName("A gradient over a placeholder is coloured at render; a styled value is parsed with MiniMessage, cached")
+    void gradientOverValues() {
         Template template = this.flow.compile("<gradient:red:blue>Welcome %name%!</gradient> <hover:show_text:'hi'>%rank%</hover>");
-        Component steve = template.render(Placeholder.of("name", "Steve", "rank", "VIP"));
-        assertSame(steve, template.render(Placeholder.of("name", "Steve", "rank", "VIP")), "same values: reused");
+        assertInstanceOf(Engine.Form.Native.class, ((CompiledTemplate) template).baseForm());
         assertEquals("Welcome Alex! VIP", PLAIN.serialize(template.render(Placeholder.of("name", "Alex", "rank", "VIP"))));
-        Component gold = template.render(Placeholder.builder()
-                .register("name", Component.text("Steve", NamedTextColor.GOLD)).register("rank", "VIP").build());
-        assertNotSame(steve, gold, "a component value with another style is not the cached text value");
+        Placeholder gold = Placeholder.builder()
+                .register("name", Component.text("Steve", NamedTextColor.GOLD)).register("rank", "VIP").build();
+        Component first = template.render(gold);
+        assertSame(first, template.render(gold), "a styled value under a gradient: parsed once per value");
         this.flow.clearCache();
-        assertNotSame(steve, template.render(Placeholder.of("name", "Steve", "rank", "VIP")), "clearCache() drops it");
+        assertNotSame(first, template.render(gold), "clearCache() drops it");
+    }
+
+    @Test
+    @DisplayName("A value in a click or insert argument: compiled once, the event built at render")
+    void eventArgumentsCompiledOnce() {
+        for (String message : new String[]{"<click:run_command:'/tp %name%'>[tp]</click>", "<insert:%name%>x</insert> %b%",
+                "<red><click:suggest_command:'/w %name% '><gradient:red:blue>%name%</gradient></click>"}) {
+            CompiledTemplate template = (CompiledTemplate) this.flow.compile(message);
+            assertNotNull(template.inlineForm(), message);
+        }
+        // A value touching a hex digit or a legacy code character could join it once written in; a value in a hover
+        // or a click inside a gradient: the old path.
+        for (String message : new String[]{"<click:run_command:'/a%name%'>x", "<click:run_command:'&%name%'>x",
+                "<click:run_command:'/w %name%1'>x", "<hover:show_text:'%name%'>x",
+                "<gradient:red:blue><click:suggest_command:'/w %name% '>%name%</click></gradient>"}) {
+            assertNull(((CompiledTemplate) this.flow.compile(message)).inlineForm(), message);
+        }
     }
 
     @Test
@@ -193,8 +210,7 @@ class EngineTest {
     @Test
     @DisplayName("Markers that can't be swapped: parsed with the values")
     void slowPath() {
-        for (String message : new String[]{"<hover:show_text:'<name>'>x", "<gradient:red:blue>%a%</gradient>",
-                "<rainbow><name></rainbow>", "<lang:item.x:'<name>'>"}) {
+        for (String message : new String[]{"<hover:show_text:'<name>'>x", "<lang:item.x:'<name>'>"}) {
             assertInstanceOf(Engine.Form.WithValues.class, this.form(message), message);
         }
     }

@@ -4,9 +4,9 @@ A fast text formatter for [Adventure](https://github.com/KyoriPowered/adventure)
 `%placeholders%`, compiled once and rendered many times, with the same output as MiniMessage, on Adventure
 4.17 (Paper 1.20.6) to 5.x (Minecraft 26).
 
-**Status: stage 2 of the [plan](docs/PLAN.md).** Messages made of colours, decorations, clicks, hovers and
-placeholders are compiled without MiniMessage (checked against it once, at compile); others are compiled once with
-MiniMessage and the values swapped in at render. MessageFlow can use it behind `formatter.engine: minimessageflow`.
+**Status: stage 3 of the [plan](docs/PLAN.md).** Messages made of colours, decorations, clicks, hovers,
+insertions, gradients, rainbows and placeholders (also in click and insert arguments) are compiled without MiniMessage
+(checked against it once, at compile); others are compiled once with MiniMessage and the values swapped in at render. MessageFlow can use it behind `formatter.engine: minimessageflow`.
 Nothing is published (`./gradlew publishToMavenLocal` for local use).
 
 ```java

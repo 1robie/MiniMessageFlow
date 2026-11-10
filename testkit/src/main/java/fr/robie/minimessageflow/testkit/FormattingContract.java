@@ -371,8 +371,89 @@ public abstract class FormattingContract {
             "<hover:show_text:'a<bold>b'>", "</hover>", "<insert:ins>", "</insert>", "%a%", "%b%", "%c%", "<a>", "<c>",
             "<missing>", "</missing>", "</a>", "\\<red>", "\\\\", "\\x", "<", ">", "<>", "</>", "&c", "&l", "&r",
             "#123abc", "<a:upper>", "%g%", "<g>", "<bold:true>", "<click:run_command:'it\\'s'>", "<red:x>", "<my tag>",
-            "<!red>", "<newline:x>", "<#12345>", "<color:nope>", "</nope>",
+            "<!red>", "<newline:x>", "<#12345>", "<color:nope>", "</nope>", "<gradient:red:blue>", "</gradient>",
+            "<gradient:#ff0000:gold:0.5>", "<gradient:red:blue:-1>", "<gradient:red>", "<gradient:red:blue:2>", "<rainbow>",
+            "<rainbow:!2>", "</rainbow>", "<rainbow:x>", "<click:run_command:'/tp %a%'>", "<insert:%h%>", "<click:suggest_command:/w %g%>",
     };
+
+    /**
+     * Values of every length from 0 to 30 characters, some with code points outside the BMP.
+     */
+    private static @NotNull List<String> valuesOfEveryLength() {
+        List<String> values = new ArrayList<>();
+        StringBuilder value = new StringBuilder();
+        for (int length = 0; length <= 30; length++) {
+            values.add(value.toString());
+            values.add(value.toString().replace('a', 'é') + (length % 7 == 3 ? "😀" : ""));
+            value.append((char) ('a' + length % 26));
+        }
+        return values;
+    }
+
+    @Test
+    @DisplayName("Gradients and rainbows over values of every length read as MiniMessage reads them")
+    void colorChangesOverValues() {
+        TestFormatter reference = new ReferenceFormatter(Placeholder.empty());
+        TestFormatter formatter = this.formatter();
+        List<String> messages = List.of(
+                "<gradient:red:blue>%v%</gradient>",
+                "<gradient:red:blue>Welcome %v%!</gradient> after",
+                "<gradient:#ff0000:#00ff00:#0000ff:0.4>[%v%] <bold>%v%</bold></gradient>",
+                "<gradient:gold:aqua:-0.7>%v%<newline>%v%</gradient>",
+                "<gradient>%v%</gradient>",
+                "<red>a <gradient:green:blue:1>%v%</gradient> b",
+                "<rainbow>%v%</rainbow>",
+                "<rainbow:!>x%v%y</rainbow>",
+                "<rainbow:3><u>%v%</u></rainbow>",
+                "<rainbow:!7><click:run_command:'/a'>%v%</click> z</rainbow>",
+                "<gradient:red:blue><v></gradient> <rainbow><v:upper></rainbow>");
+        for (String message : messages) {
+            for (String value : valuesOfEveryLength()) {
+                Placeholder values = Placeholder.of("v", value);
+                assertEquals(ComponentRuns.of(reference.format(message, values, null)),
+                        ComponentRuns.of(formatter.format(message, values, null)), message + " with '" + value + "'");
+            }
+        }
+    }
+
+    @Test
+    @DisplayName("A gradient over a value with its own style reads as MiniMessage reads it")
+    void colorChangeOverStyledValue() {
+        TestFormatter reference = new ReferenceFormatter(Placeholder.empty());
+        TestFormatter formatter = this.formatter();
+        for (Component value : List.of(Component.text("Gold", NamedTextColor.GOLD), Component.text("Bold").decorate(TextDecoration.BOLD),
+                Component.text("a").append(Component.text("b", NamedTextColor.RED)), Component.translatable("item.x"))) {
+            Placeholder values = Placeholder.of("v", value);
+            String message = "<gradient:red:blue>x %v% y</gradient>";
+            assertEquals(ComponentRuns.of(reference.format(message, values, null)),
+                    ComponentRuns.of(formatter.format(message, values, null)), value.toString());
+        }
+    }
+
+    @Test
+    @DisplayName("Click and insert arguments with values that change read as before")
+    void eventArgumentsWithValues() {
+        TestFormatter reference = new ReferenceFormatter(Placeholder.of("server", "&aLobby"));
+        TestFormatter formatter = this.formatter(Placeholder.of("server", "&aLobby"));
+        List<String> messages = List.of(
+                "<click:run_command:'/tp %v%'>[tp %v%]</click>",
+                "<click:suggest_command:/msg %v% >x</click>",
+                "<click:run_command:\"/pay %v% 10\"><green>%v%</green></click>",
+                "<insert:'%v%'>%v%</insert> <click:copy_to_clipboard:'%v% %server%'>c</click>",
+                "<click:open_url:'https://x.y/%v%'><u>link</u></click>",
+                "<click:run_command:'/w %v% %missing%'>w</click>",
+                "<hover:show_text:'hi %v%'>h</hover> <click:run_command:'/a %v%'>a</click>",
+                "<gradient:red:blue><click:run_command:'/a %v%'>%v%</click></gradient>");
+        List<String> values = List.of("Steve", "", "Steve'><red>x", "#ff00aa", "a#ff00aab", ":colon:", "%server%", "&c§l",
+                "\\back", "\"q\"", "é😀", "a b c");
+        for (String message : messages) {
+            for (String value : values) {
+                Placeholder placeholders = Placeholder.of("v", value);
+                assertEquals(ComponentRuns.of(reference.format(message, placeholders, null)),
+                        ComponentRuns.of(formatter.format(message, placeholders, null)), message + " with '" + value + "'");
+            }
+        }
+    }
 
     @Test
     @DisplayName("Same result as the reference formatter on messages of native tags")

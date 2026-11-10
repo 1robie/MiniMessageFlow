@@ -25,6 +25,7 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 
 /**
@@ -50,13 +51,13 @@ public final class Engine {
 
     private static final char MARKER_START = '﷐';
     private static final char MARKER_END = '﷑';
-    private static final char INLINE_START = '﷒';
-    private static final char INLINE_END = '﷓';
+    static final char INLINE_START = '﷒';
+    static final char INLINE_END = '﷓';
     private static final String SLOT_TAG = "mmf_slot_";
     /**
      * Around the probe values of {@link #compileForm}: a private use character, never in a marker.
      */
-    private static final char PROBE = '';
+    static final char PROBE = '';
     private static final int MAX_VARIANTS = 64;
     private static final PlainTextComponentSerializer PLAIN = PlainTextComponentSerializer.plainText();
 
@@ -135,7 +136,8 @@ public final class Engine {
         // Finds the <key> slots; for a message without inline values, this is also its form.
         Form base = this.compileForm(compiled, slots, Set.of(), true);
         slots.freeze();
-        return new CompiledTemplate(this, source, compiled, slots, pieces, List.copyOf(inlineKeys), base);
+        Form.Native inline = pieces == null ? null : this.compileInline(tagged, pieces, inlineKeys.size(), slots);
+        return new CompiledTemplate(this, source, compiled, slots, pieces, List.copyOf(inlineKeys), base, inline);
     }
 
     @NotNull Form compileForm(@NotNull String text, @NotNull Slots slots, @NotNull Set<Integer> unclaimed, boolean discover) {
@@ -144,28 +146,85 @@ public final class Engine {
         if (!slotTags.claimedAny) {
             return new Form.Static(parsed);
         }
-        Form withValues = new Form.WithValues(text, unclaimed, slots);
+        Form.WithValues withValues = new Form.WithValues(text, unclaimed, slots);
+        // MiniMessage resolves a tag several times per parse (how many depends on the version), and parses a hover's
+        // text, translatable arguments... apart: counting markers can't tell whether each one can be swapped. So
+        // render both ways with unique values and keep the swap only when it gives the same component. Twice, with
+        // values of two lengths: a gradient or rainbow (without a virtual component, Adventure 4.17) colours by
+        // length, and a probe as long as a marker would not see it.
+        Component[] shortProbe = this.probe(slots, unclaimed, false);
+        Component[] longProbe = this.probe(slots, unclaimed, true);
+        Component shortParsed = this.miniMessage.deserialize(this.legacy(text), new SlotTags(slots, unclaimed, false, shortProbe));
+        Component longParsed = this.miniMessage.deserialize(this.legacy(text), new SlotTags(slots, unclaimed, false, longProbe));
+        if (this.nativeCompiler) {
+            List<NativeCompiler.Part> parts = NativeCompiler.compile(this.legacy(text), StandardTags.defaults(), this.userTags,
+                    slots, unclaimed, this.legacyCodes);
+            // Checked against MiniMessage with the same probe values: a message the native compiler would read
+            // differently stays with MiniMessage.
+            if (parts != null && (!this.verifyNative || (same(NativeCompiler.render(parts, shortProbe), shortParsed)
+                    && same(NativeCompiler.render(parts, longProbe), longParsed)))) {
+                return new Form.Native(parts, withValues);
+            }
+        }
         if (this.hasVirtual(parsed)) {
             return withValues;
         }
-        // MiniMessage resolves a tag several times per parse (how many depends on the version), and parses a hover's
-        // text, translatable arguments... apart: counting markers can't tell whether each one can be swapped. So
-        // render both ways with unique values and keep the swap only when it gives the same component.
+        boolean swappable = this.insert(parsed, shortProbe).compact().equals(shortParsed)
+                && this.insert(parsed, longProbe).compact().equals(longParsed);
+        return swappable ? new Form.Markers(parsed) : withValues;
+    }
+
+    /**
+     * Unique plain values for the slots, short (as long as a marker) or long.
+     */
+    private @Nullable Component @NotNull [] probe(@NotNull Slots slots, @NotNull Set<Integer> unclaimed, boolean longer) {
         Component[] probe = new Component[slots.size()];
         for (int slot = 0; slot < probe.length; slot++) {
-            probe[slot] = unclaimed.contains(slot) ? null : Component.text(PROBE + slot + PROBE);
+            probe[slot] = unclaimed.contains(slot) ? null
+                    : Component.text(PROBE + String.valueOf(slot) + (longer ? "-longer probe value" : "") + PROBE);
         }
-        Component reparsed = this.miniMessage.deserialize(this.legacy(text), new SlotTags(slots, unclaimed, false, probe));
-        if (this.nativeCompiler) {
-            List<NativeCompiler.Part> parts = NativeCompiler.compile(this.legacy(text), StandardTags.defaults(), this.userTags, slots, unclaimed);
-            // Checked against MiniMessage with the same probe values: a message the native compiler would read
-            // differently stays with MiniMessage.
-            if (parts != null && (!this.verifyNative || Rendering.same(NativeCompiler.render(parts, probe), reparsed))) {
-                return new Form.Native(parts);
+        return probe;
+    }
+
+    private static boolean same(@Nullable Component rendered, @NotNull Component expected) {
+        return rendered != null && Rendering.same(rendered, expected);
+    }
+
+    /**
+     * A message with values in tag arguments, compiled once natively: only a click's or insertion's argument may
+     * hold them, and the event is built at render (stage 3). Null when the message needs the stage 1 path (text
+     * compiled once per value).
+     */
+    @Nullable Form.Native compileInline(@NotNull String tagged, @NotNull List<Object> pieces, int inlineCount, @NotNull Slots slots) {
+        if (!this.nativeCompiler) {
+            return null;
+        }
+        List<NativeCompiler.Part> parts = NativeCompiler.compile(this.legacy(tagged), StandardTags.defaults(), this.userTags,
+                slots, Set.of(), this.legacyCodes);
+        if (parts == null) {
+            return null;
+        }
+        if (this.verifyNative) {
+            for (boolean longer : new boolean[]{false, true}) {
+                Component[] probe = this.probe(slots, Set.of(), longer);
+                String[] inline = new String[inlineCount];
+                for (int i = 0; i < inlineCount; i++) {
+                    inline[i] = PROBE + "i" + i + (longer ? "-longer probe value" : "") + PROBE;
+                }
+                Component reparsed = this.miniMessage.deserialize(this.legacy(join(pieces, inline)), new SlotTags(slots, Set.of(), false, probe));
+                if (!same(NativeCompiler.render(parts, probe, inline), reparsed)) {
+                    return null;
+                }
             }
         }
-        Component swapped = this.insert(parsed, probe).compact();
-        return swapped.equals(reparsed) ? new Form.Markers(parsed) : withValues;
+        return new Form.Native(parts, null);
+    }
+
+    /**
+     * Renders a native form with inline values, or null when it must go the stage 1 way this time.
+     */
+    @Nullable Component renderInline(@NotNull Form.Native form, @Nullable Component @NotNull [] values, @NotNull String @NotNull [] inline) {
+        return NativeCompiler.render(form.parts(), values, inline);
     }
 
     @NotNull Form inlineForm(@NotNull String text, @NotNull Slots slots, @NotNull Set<Integer> unclaimed) {
@@ -229,7 +288,11 @@ public final class Engine {
     @NotNull Component render(@NotNull Form form, @Nullable Component @NotNull [] values) {
         return switch (form) {
             case Form.Static(Component component) -> component;
-            case Form.Native(List<NativeCompiler.Part> parts) -> NativeCompiler.render(parts, values);
+            case Form.Native(List<NativeCompiler.Part> parts, Form.WithValues fallback) -> {
+                Component rendered = NativeCompiler.render(parts, values);
+                // A gradient over a value with its own style: this render goes through MiniMessage.
+                yield rendered != null ? rendered : this.render(Objects.requireNonNull(fallback, "fallback"), values);
+            }
             case Form.Markers(Component component) -> this.insert(component, values).compact();
             case Form.WithValues(String text, Set<Integer> unclaimed, Slots slots) -> this.withValues.get(
                     new ValuesKey(text, unclaimed, Arrays.asList(values.clone())),
@@ -378,7 +441,7 @@ public final class Engine {
         return name.startsWith(SLOT_TAG) ? parseIndex(name, SLOT_TAG.length(), name.length()) : -1;
     }
 
-    private static int parseIndex(@NotNull String s, int from, int to) {
+    static int parseIndex(@NotNull String s, int from, int to) {
         if (from >= to || to - from > 6) {
             return -1;
         }
@@ -513,7 +576,7 @@ public final class Engine {
         /**
          * Compiled without MiniMessage: fixed parts and values (stage 2).
          */
-        record Native(@NotNull List<NativeCompiler.Part> parts) implements Form {
+        record Native(@NotNull List<NativeCompiler.Part> parts, @Nullable WithValues fallback) implements Form {
         }
 
         record Markers(@NotNull Component component) implements Form {

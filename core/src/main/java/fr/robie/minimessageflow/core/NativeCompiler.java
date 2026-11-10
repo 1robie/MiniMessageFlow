@@ -9,12 +9,14 @@ import net.kyori.adventure.text.format.Style;
 import net.kyori.adventure.text.format.TextColor;
 import net.kyori.adventure.text.format.TextDecoration;
 import net.kyori.adventure.text.minimessage.tag.resolver.TagResolver;
+import net.kyori.adventure.util.HSVLike;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Deque;
 import java.util.List;
 import java.util.Locale;
@@ -24,13 +26,14 @@ import java.util.Set;
 /**
  * Compiles a message without MiniMessage, when every tag in it is one of the native set: colours ({@code <red>},
  * {@code <#ff00aa>}, {@code <color:...>}), decorations and their negations, {@code <reset>}, {@code <newline>},
- * {@code <click>}, {@code <hover:show_text>}, {@code <insert>}, and placeholders. Any other tag (gradient, font,
- * translatable, a user tag...) and the message is left to MiniMessage: {@link #compile} returns null.
+ * {@code <click>}, {@code <hover:show_text>}, {@code <insert>}, {@code <gradient>}, {@code <rainbow>}, and placeholders.
+ * Any other tag (font, translatable, a user tag...) and the message is left to MiniMessage: {@link #compile} returns
+ * null.
  * <p>
- * The result is a list of {@link Part}s: fixed components built once, values with the style they inherit, and groups
- * for a click, hover or insertion around values (kept on the parent, not copied onto each leaf). Colours and
- * decorations around values are flattened onto them. Rendering builds one component from the parts: no parse, no
- * {@code compact()}.
+ * The result is a list of {@link Part}s: fixed components built once, values with the style they inherit, groups for
+ * a click, hover or insertion around values (kept on the parent, not copied onto each leaf), events whose argument
+ * holds values (rebuilt at render), and colour changes (gradient, rainbow) over values (coloured at render).
+ * Rendering builds one component from the parts: no parse, no {@code compact()}.
  */
 @ApiStatus.Internal
 final class NativeCompiler {
@@ -43,28 +46,34 @@ final class NativeCompiler {
             Map.entry("obfuscated", TextDecoration.OBFUSCATED), Map.entry("obf", TextDecoration.OBFUSCATED));
 
     private static final Set<String> COLOR_TAGS = Set.of("color", "colour", "c");
+    private static final String[] NO_INLINE = new String[0];
 
     private final TagResolver standard;
     private final @Nullable TagResolver userTags;
     private final Engine.Slots slots;
     private final Set<Integer> unclaimed;
+    private final boolean legacyCodes;
 
     private NativeCompiler(@NotNull TagResolver standard, @Nullable TagResolver userTags, @NotNull Engine.Slots slots,
-                           @NotNull Set<Integer> unclaimed) {
+                           @NotNull Set<Integer> unclaimed, boolean legacyCodes) {
         this.standard = standard;
         this.userTags = userTags;
         this.slots = slots;
         this.unclaimed = unclaimed;
+        this.legacyCodes = legacyCodes;
     }
 
     /**
-     * @param text the message with slot tags, legacy codes already converted
+     * @param text        the message with slot tags, legacy codes already converted; it may hold inline markers
+     *                    ({@link Engine#INLINE_START}) in click and insert arguments
+     * @param legacyCodes whether legacy codes are read (inline values are converted at render, as the stage 1 engine
+     *                    converts the text they are written into)
      * @return the parts, or null when the message needs MiniMessage
      */
     static @Nullable List<Part> compile(@NotNull String text, @NotNull TagResolver standard, @Nullable TagResolver userTags,
-                                        @NotNull Engine.Slots slots, @NotNull Set<Integer> unclaimed) {
+                                        @NotNull Engine.Slots slots, @NotNull Set<Integer> unclaimed, boolean legacyCodes) {
         try {
-            NativeCompiler compiler = new NativeCompiler(standard, userTags, slots, unclaimed);
+            NativeCompiler compiler = new NativeCompiler(standard, userTags, slots, unclaimed, legacyCodes);
             Element root = compiler.parse(text, true);
             return merge(reduce(root.children, Style.empty()));
         } catch (Unsupported e) {
@@ -92,13 +101,77 @@ final class NativeCompiler {
          */
         record Group(@NotNull Style style, @NotNull List<Part> parts) implements Part {
         }
+
+        /**
+         * A click or insertion whose argument holds values, built at render, over its parts.
+         */
+        record Event(@NotNull Style style, @NotNull String action, @NotNull Argument argument, @NotNull List<Part> parts) implements Part {
+        }
+
+        /**
+         * A gradient or rainbow over text and values, coloured at render.
+         */
+        record Transform(@NotNull Style style, @NotNull ColorChange change, @NotNull List<Item> items) implements Part {
+        }
     }
 
-    static @NotNull Component render(@NotNull List<Part> parts, @Nullable Component @NotNull [] values) {
-        return Component.empty().children(renderParts(parts, values));
+    /**
+     * Text or a slot under a gradient, with the decorations (and events) inside the gradient around it.
+     */
+    record Item(@Nullable String text, int slot, @NotNull Style style) {
     }
 
-    private static @NotNull List<Component> renderParts(@NotNull List<Part> parts, @Nullable Component @NotNull [] values) {
+    /**
+     * An argument made of literal pieces ({@code String}) and inline values ({@link Inline}).
+     */
+    record Argument(@NotNull List<Object> pieces, boolean quoted, boolean legacyCodes) {
+        /**
+         * @return the argument, or null when a value would change how MiniMessage splits the tag (in an argument
+         * without quotes, a {@code :} or a {@code <} from a legacy colour): that render goes the stage 1 way
+         */
+        @Nullable String render(@NotNull String @NotNull [] inline) {
+            StringBuilder out = new StringBuilder(32);
+            for (Object piece : this.pieces) {
+                if (piece instanceof Inline(int index, char before)) {
+                    String value = inline[index];
+                    // The stage 1 engine converts legacy codes in the text the value is written into: a "#rrggbb" in a
+                    // value becomes a colour tag there too (& and § are already gone from inline values).
+                    if (this.legacyCodes && value.indexOf('#') >= 0) {
+                        value = LegacyCodes.toMiniMessage(before + value).substring(1);
+                    }
+                    if (!this.quoted && (value.indexOf(':') >= 0 || value.indexOf('<') >= 0)) {
+                        return null;
+                    }
+                    out.append(value);
+                } else {
+                    out.append((String) piece);
+                }
+            }
+            return out.toString();
+        }
+    }
+
+    /**
+     * Inline value number {@code index}, written after the character {@code before}.
+     */
+    record Inline(int index, char before) {
+    }
+
+    static @Nullable Component render(@NotNull List<Part> parts, @Nullable Component @NotNull [] values) {
+        return render(parts, values, NO_INLINE);
+    }
+
+    /**
+     * @return the component, or null when a gradient meets a value it can't colour the way MiniMessage does (a value
+     * with a style or children): such a render goes through MiniMessage
+     */
+    static @Nullable Component render(@NotNull List<Part> parts, @Nullable Component @NotNull [] values, @NotNull String @NotNull [] inline) {
+        List<Component> children = renderParts(parts, values, inline);
+        return children == null ? null : Component.empty().children(children);
+    }
+
+    private static @Nullable List<Component> renderParts(@NotNull List<Part> parts, @Nullable Component @NotNull [] values,
+                                                         @NotNull String @NotNull [] inline) {
         List<Component> out = new ArrayList<>(parts.size());
         for (Part part : parts) {
             switch (part) {
@@ -109,8 +182,41 @@ final class NativeCompiler {
                         out.add(styled(value, style));
                     }
                 }
-                case Part.Group(Style style, List<Part> children) ->
-                        out.add(Component.text("", style).children(renderParts(children, values)));
+                case Part.Group(Style style, List<Part> children) -> {
+                    List<Component> rendered = renderParts(children, values, inline);
+                    if (rendered == null) {
+                        return null;
+                    }
+                    out.add(Component.text("", style).children(rendered));
+                }
+                case Part.Event(Style style, String action, Argument argument, List<Part> children) -> {
+                    List<Component> rendered = renderParts(children, values, inline);
+                    if (rendered == null) {
+                        return null;
+                    }
+                    String value = argument.render(inline);
+                    if (value == null) {
+                        return null;
+                    }
+                    Style event;
+                    try {
+                        event = action.equals("insert")
+                                ? Style.style().insertion(value).build()
+                                : click(List.of(action, value));
+                    } catch (RuntimeException e) {
+                        // Adventure 5.1+ checks a URL when the event is built: MiniMessage decides what an invalid
+                        // one gives, so this render is its.
+                        return null;
+                    }
+                    out.add(Component.text("", event.merge(style, Style.Merge.Strategy.IF_ABSENT_ON_TARGET)).children(rendered));
+                }
+                case Part.Transform(Style style, ColorChange change, List<Item> items) -> {
+                    Component colored = transform(style, change, items, values);
+                    if (colored == null) {
+                        return null;
+                    }
+                    out.add(colored);
+                }
             }
         }
         return out;
@@ -130,6 +236,94 @@ final class NativeCompiler {
         return value.style(value.style().merge(style, Style.Merge.Strategy.IF_ABSENT_ON_TARGET));
     }
 
+    // --- gradients and rainbows ---------------------------------------------------------------------------------
+
+    /**
+     * How MiniMessage colours text under {@code <gradient>} or {@code <rainbow>} ({@code GradientTag},
+     * {@code RainbowTag}; the same maths from Adventure 4.17 to 5.2): one colour per code point, in order.
+     */
+    sealed interface ColorChange {
+        @NotNull Cursor start(int size);
+
+        record Gradient(@NotNull TextColor @NotNull [] colors, double phase) implements ColorChange {
+            @Override
+            public @NotNull Cursor start(int size) {
+                double multiplier = size == 1 ? 0 : (double) (this.colors.length - 1) / (size - 1);
+                double phase = this.phase * (this.colors.length - 1);
+                return new Cursor() {
+                    private int index;
+
+                    @Override
+                    public @NotNull TextColor next() {
+                        double position = (this.index++ * multiplier) + phase;
+                        int lowUnclamped = (int) Math.floor(position);
+                        int high = (int) Math.ceil(position) % Gradient.this.colors.length;
+                        int low = lowUnclamped % Gradient.this.colors.length;
+                        return TextColor.lerp((float) position - lowUnclamped, Gradient.this.colors[low], Gradient.this.colors[high]);
+                    }
+                };
+            }
+        }
+
+        record Rainbow(boolean reversed, double dividedPhase) implements ColorChange {
+            @Override
+            public @NotNull Cursor start(int size) {
+                return new Cursor() {
+                    private int index = Rainbow.this.reversed ? size - 1 : 0;
+
+                    @Override
+                    public @NotNull TextColor next() {
+                        float index = this.index;
+                        float hue = (float) ((index / size + Rainbow.this.dividedPhase) % 1f);
+                        TextColor color = TextColor.color(HSVLike.hsvLike(hue, 1f, 1f));
+                        if (Rainbow.this.reversed) {
+                            this.index = this.index == 0 ? size - 1 : this.index - 1;
+                        } else {
+                            this.index++;
+                        }
+                        return color;
+                    }
+                };
+            }
+        }
+    }
+
+    interface Cursor {
+        @NotNull TextColor next();
+    }
+
+    private static @Nullable Component transform(@NotNull Style style, @NotNull ColorChange change, @NotNull List<Item> items,
+                                                 @Nullable Component @NotNull [] values) {
+        String[] texts = new String[items.size()];
+        int size = 0;
+        for (int i = 0; i < texts.length; i++) {
+            Item item = items.get(i);
+            String text = item.text();
+            if (text == null) {
+                Component value = values[item.slot()];
+                if (!(value instanceof TextComponent component) || !value.style().isEmpty() || !value.children().isEmpty()) {
+                    return null;
+                }
+                text = component.content();
+            }
+            texts[i] = text;
+            size += text.codePointCount(0, text.length());
+        }
+        Cursor cursor = change.start(size);
+        List<Component> chars = new ArrayList<>(size);
+        int[] holder = new int[1];
+        for (int i = 0; i < texts.length; i++) {
+            Style itemStyle = items.get(i).style();
+            String text = texts[i];
+            for (int offset = 0; offset < text.length(); ) {
+                holder[0] = text.codePointAt(offset);
+                offset += Character.charCount(holder[0]);
+                chars.add(Component.text(new String(holder, 0, 1), itemStyle.color(cursor.next())));
+            }
+        }
+        return Component.text("", style).children(chars);
+    }
+
     // --- passes -------------------------------------------------------------------------------------------------
 
     /**
@@ -144,10 +338,14 @@ final class NativeCompiler {
                 case Node.Slot(int slot) -> parts.add(new Part.Value(slot, inherited));
                 case Element element -> {
                     Style style = element.style.merge(inherited, Style.Merge.Strategy.IF_ABSENT_ON_TARGET);
-                    if (!element.hasSlot()) {
+                    if (!element.isDynamic()) {
                         if (element.hasText()) { // <bold><hover:...><reset> shows nothing: no part
                             parts.add(new Part.Fixed(element.build().style(style)));
                         }
+                    } else if (element.change != null) {
+                        parts.add(new Part.Transform(style, element.change, items(element.children, Style.empty())));
+                    } else if (element.action != null) {
+                        parts.add(new Part.Event(style, element.action, element.argument, merge(reduce(element.children, Style.empty()))));
                     } else if (hasEvents(element.style)) {
                         parts.add(new Part.Group(style, merge(reduce(element.children, Style.empty()))));
                     } else {
@@ -157,6 +355,27 @@ final class NativeCompiler {
             }
         }
         return parts;
+    }
+
+    /**
+     * The text and slots under a gradient, each with the styles between it and the gradient. A colour, an event
+     * with values or another gradient in there: MiniMessage's rules for them are not copied.
+     */
+    private static @NotNull List<Item> items(@NotNull List<Node> nodes, @NotNull Style inherited) {
+        List<Item> items = new ArrayList<>();
+        for (Node node : nodes) {
+            switch (node) {
+                case Node.Text(String text) -> items.add(new Item(text, -1, inherited));
+                case Node.Slot(int slot) -> items.add(new Item(null, slot, inherited));
+                case Element element -> {
+                    if (element.change != null || element.action != null || element.style.color() != null) {
+                        throw unsupported();
+                    }
+                    items.addAll(items(element.children, element.style.merge(inherited, Style.Merge.Strategy.IF_ABSENT_ON_TARGET)));
+                }
+            }
+        }
+        return items;
     }
 
     private static boolean hasEvents(@NotNull Style style) {
@@ -205,16 +424,36 @@ final class NativeCompiler {
     private static final class Element implements Node {
         final String name;
         final Style style;
+        /**
+         * {@code run_command}..., or {@code insert}, when the argument holds inline values.
+         */
+        final @Nullable String action;
+        final @Nullable Argument argument;
+        final @Nullable ColorChange change;
         final List<Node> children = new ArrayList<>();
 
         Element(@NotNull String name, @NotNull Style style) {
-            this.name = name;
-            this.style = style;
+            this(name, style, null, null, null);
         }
 
-        boolean hasSlot() {
+        Element(@NotNull String name, @NotNull Style style, @Nullable String action, @Nullable Argument argument,
+                @Nullable ColorChange change) {
+            this.name = name;
+            this.style = style;
+            this.action = action;
+            this.argument = argument;
+            this.change = change;
+        }
+
+        /**
+         * Whether something in it changes with the values.
+         */
+        boolean isDynamic() {
+            if (this.action != null) {
+                return true;
+            }
             for (Node child : this.children) {
-                if (child instanceof Node.Slot || (child instanceof Element element && element.hasSlot())) {
+                if (child instanceof Node.Slot || (child instanceof Element element && element.isDynamic())) {
                     return true;
                 }
             }
@@ -231,6 +470,13 @@ final class NativeCompiler {
         }
 
         @NotNull Component build() {
+            if (this.change != null) {
+                Component colored = transform(this.style, this.change, items(this.children, Style.empty()), new Component[0]);
+                if (colored == null) {
+                    throw new IllegalStateException("value in a fixed gradient");
+                }
+                return colored;
+            }
             List<Component> built = new ArrayList<>(this.children.size());
             for (Node child : this.children) {
                 switch (child) {
@@ -260,8 +506,11 @@ final class NativeCompiler {
 
     /**
      * A tag as written: {@code <name:arg:arg>} or {@code </name>}, from {@code start} to {@code end} (exclusive).
+     *
+     * @param before the character just before each argument in the text (its quote, or the {@code :})
      */
-    private record Tag(@NotNull String name, @NotNull List<String> arguments, boolean closing, int start, int end) {
+    private record Tag(@NotNull String name, @NotNull List<String> arguments, @NotNull List<Character> before,
+                       boolean closing, int start, int end) {
     }
 
     private @NotNull Element parse(@NotNull String text, boolean slotsAllowed) {
@@ -273,6 +522,9 @@ final class NativeCompiler {
         int i = 0;
         while (i < length) {
             char c = text.charAt(i);
+            if (c == Engine.INLINE_START) {
+                throw unsupported(); // an inline value outside a click or insert argument
+            }
             if (c == '\\' && i + 1 < length && (text.charAt(i + 1) == '<' || text.charAt(i + 1) == '\\')) {
                 pending.append(text.charAt(i + 1));
                 i += 2;
@@ -342,12 +594,14 @@ final class NativeCompiler {
         if (this.userTags != null && this.userTags.has(name)) {
             throw unsupported();
         }
-        Style style = this.nativeStyle(name, tag.arguments());
-        if (style != null) {
-            Element element = new Element(name, style);
+        Element element = this.element(name, tag, slotsAllowed);
+        if (element != null) {
             current.children.add(element);
             open.push(element);
             return;
+        }
+        if (hasInline(tag.arguments())) {
+            throw unsupported();
         }
         switch (name) {
             case "reset" -> {
@@ -376,15 +630,154 @@ final class NativeCompiler {
         }
     }
 
-    private boolean isTag(@NotNull String name) {
-        return Engine.slotTagIndex(name) >= 0 || this.standard.has(name)
-                || (this.userTags != null && this.userTags.has(name));
+    private static boolean hasInline(@NotNull List<String> arguments) {
+        for (String argument : arguments) {
+            if (argument.indexOf(Engine.INLINE_START) >= 0) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static void expectNoArguments(@NotNull Tag tag) {
         if (!tag.arguments().isEmpty()) {
             throw unsupported();
         }
+    }
+
+    /**
+     * The element of a native tag that wraps what follows it, or null when the tag is not one.
+     */
+    private @Nullable Element element(@NotNull String name, @NotNull Tag tag, boolean slotsAllowed) {
+        List<String> arguments = tag.arguments();
+        // An inline value may only be in the argument of a click (its value) or an insertion.
+        if ((name.equals("click") || name.equals("insert")) && hasInline(arguments)) {
+            int index = name.equals("click") ? 1 : 0;
+            if (!slotsAllowed || arguments.size() != index + 1 || hasInline(arguments.subList(0, index))) {
+                throw unsupported();
+            }
+            Argument argument = this.argument(arguments.get(index), tag.before().get(index));
+            if (name.equals("click") && !CLICK_ACTIONS.contains(arguments.getFirst())) {
+                throw unsupported();
+            }
+            return new Element(name, Style.empty(), name.equals("click") ? arguments.getFirst() : "insert", argument, null);
+        }
+        if (hasInline(arguments)) {
+            throw unsupported();
+        }
+        if (name.equals("gradient")) {
+            return new Element(name, Style.empty(), null, null, gradient(arguments));
+        }
+        if (name.equals("rainbow")) {
+            return new Element(name, Style.empty(), null, null, rainbow(arguments));
+        }
+        Style style = this.nativeStyle(name, arguments);
+        return style == null ? null : new Element(name, style);
+    }
+
+    /**
+     * Splits an argument at its inline markers. A value touching a character that could join it into a legacy code
+     * or a hex colour ({@code &}, {@code §}, {@code #}, a hex digit, another value) would be read differently once
+     * written in: such a message keeps the stage 1 path.
+     */
+    private @NotNull Argument argument(@NotNull String text, char before) {
+        List<Object> pieces = new ArrayList<>();
+        int from = 0;
+        int start;
+        while ((start = text.indexOf(Engine.INLINE_START, from)) >= 0) {
+            int end = text.indexOf(Engine.INLINE_END, start);
+            if (end < 0) {
+                throw unsupported();
+            }
+            char previous = start == 0 ? before : text.charAt(start - 1);
+            char next = end + 1 < text.length() ? text.charAt(end + 1) : ' ';
+            if (joins(previous) || joins(next) || previous == Engine.INLINE_END || next == Engine.INLINE_START) {
+                throw unsupported();
+            }
+            if (start > from) {
+                pieces.add(text.substring(from, start));
+            }
+            int index = Engine.parseIndex(text, start + 1, end);
+            if (index < 0) {
+                throw unsupported();
+            }
+            pieces.add(new Inline(index, previous));
+            from = end + 1;
+        }
+        if (from < text.length()) {
+            pieces.add(text.substring(from));
+        }
+        return new Argument(List.copyOf(pieces), before != ':', this.legacyCodes);
+    }
+
+    private static boolean joins(char c) {
+        return c == '&' || c == '§' || c == '#' || Character.digit(c, 16) >= 0;
+    }
+
+    /**
+     * {@code <gradient:color:color...[:phase]>}: two colours or more (white to black without any), the last argument
+     * may be a phase in [-1, 1].
+     */
+    private static @NotNull ColorChange gradient(@NotNull List<String> arguments) {
+        List<TextColor> colors = new ArrayList<>(arguments.size());
+        double phase = 0;
+        for (int i = 0; i < arguments.size(); i++) {
+            String argument = arguments.get(i);
+            TextColor color = color(argument);
+            if (color != null) {
+                colors.add(color);
+                continue;
+            }
+            if (i != arguments.size() - 1) {
+                throw unsupported();
+            }
+            try {
+                phase = Double.parseDouble(argument);
+            } catch (NumberFormatException e) {
+                throw unsupported();
+            }
+            if (!(phase >= -1d && phase <= 1d)) {
+                throw unsupported();
+            }
+        }
+        if (colors.size() == 1) {
+            throw unsupported();
+        }
+        if (colors.isEmpty()) {
+            colors.add(TextColor.color(0xffffff));
+            colors.add(TextColor.color(0x000000));
+        }
+        if (phase < 0) {
+            phase = 1 + phase;
+            Collections.reverse(colors);
+        }
+        return new ColorChange.Gradient(colors.toArray(new TextColor[0]), phase);
+    }
+
+    /**
+     * {@code <rainbow>}, {@code <rainbow:!>} (reversed), {@code <rainbow:3>}, {@code <rainbow:!3>} (phase in tenths).
+     */
+    private static @NotNull ColorChange rainbow(@NotNull List<String> arguments) {
+        if (arguments.size() > 1) {
+            throw unsupported();
+        }
+        boolean reversed = false;
+        int phase = 0;
+        if (!arguments.isEmpty()) {
+            String value = arguments.getFirst();
+            if (value.startsWith("!")) {
+                reversed = true;
+                value = value.substring(1);
+            }
+            if (!value.isEmpty()) {
+                try {
+                    phase = Integer.parseInt(value);
+                } catch (NumberFormatException e) {
+                    throw unsupported();
+                }
+            }
+        }
+        return new ColorChange.Rainbow(reversed, phase / 10d);
     }
 
     /**
@@ -464,15 +857,21 @@ final class NativeCompiler {
         }
         String value = arguments.get(1);
         Style.Builder style = Style.style();
-        switch (arguments.getFirst()) {
-            case "run_command" -> style.clickEvent(ClickEvent.runCommand(value));
-            case "suggest_command" -> style.clickEvent(ClickEvent.suggestCommand(value));
-            case "open_url" -> style.clickEvent(ClickEvent.openUrl(value));
-            case "copy_to_clipboard" -> style.clickEvent(ClickEvent.copyToClipboard(value));
-            default -> throw unsupported();
+        try {
+            switch (arguments.getFirst()) {
+                case "run_command" -> style.clickEvent(ClickEvent.runCommand(value));
+                case "suggest_command" -> style.clickEvent(ClickEvent.suggestCommand(value));
+                case "open_url" -> style.clickEvent(ClickEvent.openUrl(value));
+                case "copy_to_clipboard" -> style.clickEvent(ClickEvent.copyToClipboard(value));
+                default -> throw unsupported();
+            }
+        } catch (IllegalArgumentException e) {
+            throw unsupported(); // Adventure 5.1+ refuses an invalid URL: MiniMessage decides what that gives
         }
         return style.build();
     }
+
+    private static final Set<String> CLICK_ACTIONS = Set.of("run_command", "suggest_command", "open_url", "copy_to_clipboard");
 
     /**
      * Reads a tag at {@code start} ({@code <}), or null when the text there is not a tag (it is then text).
@@ -496,10 +895,12 @@ final class NativeCompiler {
         }
         String name = text.substring(nameStart, i).toLowerCase(Locale.ROOT);
         List<String> arguments = new ArrayList<>(2);
+        List<Character> before = new ArrayList<>(2);
         while (i < length && text.charAt(i) == ':') {
             i++;
             if (i < length && (text.charAt(i) == '\'' || text.charAt(i) == '"')) {
                 char quote = text.charAt(i++);
+                before.add(quote);
                 StringBuilder argument = new StringBuilder();
                 boolean closed = false;
                 while (i < length) {
@@ -521,6 +922,7 @@ final class NativeCompiler {
                 }
                 arguments.add(argument.toString());
             } else {
+                before.add(':');
                 int argumentStart = i;
                 while (i < length && text.charAt(i) != ':' && text.charAt(i) != '>') {
                     char c = text.charAt(i);
@@ -538,7 +940,7 @@ final class NativeCompiler {
         if (closing && !arguments.isEmpty()) {
             throw unsupported();
         }
-        return new Tag(name, List.copyOf(arguments), closing, start, i + 1);
+        return new Tag(name, List.copyOf(arguments), List.copyOf(before), closing, start, i + 1);
     }
 
     private static boolean isNameChar(char c) {
