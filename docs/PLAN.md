@@ -429,6 +429,23 @@ Each stage is a release of the library and has an exit criterion.
    `Placeholder` kept (delegating) so plugins don't break. What MessageFlow does with its own
    `LegacyMessageFormatter` is its decision; the library gives it nothing for servers without Adventure.
    *Exit*: flag removed, changelog documents the `Parsed` isolation change.
+
+   **Done 2026-11-10** in MessageFlow, branch `feat/minimessageflow-engine` (version number not bumped: the owner's
+   release step). Both exit criteria met: `formatter.engine` and the second surefire run are gone, the 1.2.0 changelog
+   states the isolation change. MessageFlow: 52 core tests and 66 common tests pass; shaded jar checked (all
+   MiniMessageFlow classes relocated, bridge found).
+   - `AdventureMessageFormatter` lost the 1.1 engine (markers, three Guava caches, the legacy conversion): about 450
+     lines. It keeps sending, titles, boss bars and sounds, and formats through one `MiniMessageFlow`.
+   - Reload: the manager gives every loaded text of every language (`MessageFormatter.precompile`) to the formatter,
+     which compiles each, with and without the prefix, into a map replaced at each reload; `format` looks there
+     first, then in the library's bounded cache.
+   - `Placeholder` (MessageFlow's) builds its MiniMessageFlow form once, lazily; `PlaceholderModifiers.register` also
+     registers with the library, so custom modifiers keep working. `common` now depends on MiniMessageFlow (shaded by
+     `core`).
+   - Tests that read the 1.1 engine's caches became checks of output (runs) or of the registered templates; the 1.1
+     legacy conversion moved into a test helper, as the reference for `ColorConversionTest` and `TemplateCacheTest`.
+   - **Blocks a release**: MiniMessageFlow is only in the local Maven repository; MessageFlow builds elsewhere (JitPack)
+     fail until it is published.
 5. **More native tags** as benchmarks ask for them, Adventure 5.x-only tags in `compat/adventure-5`, translation
    store integration (`GlobalTranslator`) for per-player languages, docs site and 1.0.0.
 
