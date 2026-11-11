@@ -60,11 +60,11 @@ differently), except for four things done on purpose:
   values). Each is checked against MiniMessage when it is compiled, and left to MiniMessage if they differ.
 - **Other messages** are parsed once by MiniMessage with a marker where each value goes, and the markers are swapped at
   render; when that can't be done, they are parsed with their values, cached by values. That is every message with:
-  `<selector>`/`<sel>`, `<score>`, `<nbt>`/`<data>`, `<pride>`; `<shadow>`, `<sprite>`, `<head>` on Adventure 4;
-  `<head>` with a UUID, a texture or the hat argument; `<click>` with `change_page` (its value type changed in
-  Adventure 5), `show_dialog` or `custom`; `<hover>` with `show_item` or `show_entity`; a decoration with an argument
-  other than `true`/`false` (`<bold:off>`); a user tag; or text MiniMessage's tokenizer reads in its own way
-  (`a < b > c`).
+  `<selector>`/`<sel>`, `<score>`, `<nbt>`/`<data>`, `<pride>`; `<shadow>`, `<sprite>`, `<head>` and
+  `<click:custom>` on Adventure 4; `<head>` with a UUID, a texture or the hat argument; `<click:show_dialog>` (which
+  MiniMessage refuses); `<hover:show_item>` with data components or NBT; a user tag; or text MiniMessage's tokenizer
+  reads in its own way (`a < b > c`). Every other click action, `show_item` with a key and count, `show_entity` and
+  decoration arguments (`<bold:off>`) are native.
 
 JMH 1.37, JDK 25.0.3, Adventure 4.17, Windows desktop; `-wi 5 -i 10 -f 2`, ± is the 99.9% error
 (`./gradlew :benchmarks:jmh`).

@@ -67,6 +67,18 @@ public interface AdventureBridge {
     @Nullable Component head(@Nullable String name);
 
     /**
+     * The style of {@code <click:change_page:value>}, or null when MiniMessage would refuse it here. The page is text in
+     * Adventure 4 and an integer in Adventure 5.
+     */
+    @Nullable Style clickChangePage(@NotNull String value);
+
+    /**
+     * The style of {@code <click:custom:key[:nbt]>}, or null where this bridge has no custom click (Adventure 4) or the
+     * key is invalid.
+     */
+    @Nullable Style clickCustom(@NotNull String key, @Nullable String nbt);
+
+    /**
      * For logs and errors: {@code "Adventure 4 (shadow colour: no, virtual components: no)"}.
      */
     default @NotNull String describe() {

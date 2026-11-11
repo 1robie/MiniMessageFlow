@@ -209,6 +209,13 @@ class EngineTest {
                 assertFalse(form instanceof Engine.Form.Native, message + ": " + form);
             }
         }
+        Engine.Form custom = this.form("<click:custom:'ns:key':'{a:1b}'>%a%");
+        assertEquals(AdventureBridges.current().major() >= 5, custom instanceof Engine.Form.Native, "custom click: " + custom);
+        for (String message : new String[]{"<bold:off>%a% <i:yes>x", "<click:RUN_COMMAND:'/x'>%a%", "<click:change_page:2>%a%",
+                "<hover:show_item:diamond>%a%", "<hover:show_item:'minecraft:diamond':3>%a%",
+                "<hover:show_entity:pig:069a79f4-44e9-4726-a5be-fca90e38aaf5:'<red>Zed'>%a%"}) {
+            assertInstanceOf(Engine.Form.Native.class, this.form(message), message);
+        }
         // Forms the versions read differently stay with MiniMessage everywhere.
         assertFalse(this.form("<head:069a79f4-44e9-4726-a5be-fca90e38aaf5> %a%") instanceof Engine.Form.Native);
         assertFalse(this.form("<head:on> %a%") instanceof Engine.Form.Native);

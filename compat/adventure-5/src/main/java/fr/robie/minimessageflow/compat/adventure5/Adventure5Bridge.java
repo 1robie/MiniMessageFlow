@@ -9,6 +9,8 @@ import net.kyori.adventure.text.VirtualComponent;
 import net.kyori.adventure.text.format.ShadowColor;
 import net.kyori.adventure.text.object.ObjectContents;
 import net.kyori.adventure.key.Key;
+import net.kyori.adventure.nbt.api.BinaryTagHolder;
+import net.kyori.adventure.text.event.ClickEvent;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -61,6 +63,27 @@ public final class Adventure5Bridge implements AdventureBridge {
                     ? ObjectContents.sprite(Key.key(sprite))
                     : ObjectContents.sprite(Key.key(atlas), Key.key(sprite)));
         } catch (RuntimeException e) { // an invalid key: MiniMessage reports it
+            return null;
+        }
+    }
+
+    /**
+     * As ClickTag 5.x: the page must be an integer ({@code Integer.parseInt}), else MiniMessage refuses the tag.
+     */
+    @Override
+    public @Nullable Style clickChangePage(@NotNull String value) {
+        try {
+            return Style.style().clickEvent(ClickEvent.changePage(Integer.parseInt(value))).build();
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    @Override
+    public @Nullable Style clickCustom(@NotNull String key, @Nullable String nbt) {
+        try {
+            return Style.style().clickEvent(ClickEvent.custom(Key.key(key), nbt == null ? null : BinaryTagHolder.binaryTagHolder(nbt))).build();
+        } catch (RuntimeException e) { // an invalid key
             return null;
         }
     }

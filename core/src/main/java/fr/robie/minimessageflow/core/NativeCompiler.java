@@ -749,7 +749,7 @@ final class NativeCompiler {
                 throw unsupported();
             }
             Argument argument = this.argument(arguments.get(index), tag.before().get(index));
-            if (name.equals("click") && !CLICK_ACTIONS.contains(arguments.getFirst())) {
+            if (name.equals("click") && !CLICK_ACTIONS.contains(arguments.getFirst().toLowerCase(Locale.ROOT))) {
                 throw unsupported();
             }
             return new Element(name, Style.empty(), name.equals("click") ? arguments.getFirst() : "insert", argument, null);
@@ -1047,13 +1047,14 @@ final class NativeCompiler {
             if (arguments.isEmpty()) {
                 return Style.style(decoration);
             }
-            if (arguments.size() == 1 && arguments.getFirst().equals("false")) {
-                return Style.empty().decoration(decoration, false);
+            if (arguments.size() != 1) {
+                throw unsupported();
             }
-            if (arguments.size() == 1 && arguments.getFirst().equals("true")) {
-                return Style.style(decoration);
-            }
-            throw unsupported();
+            // As DecorationTag (4.17 to 5.2): "false" and "off" turn it off, any other argument turns it on.
+            String argument = arguments.getFirst();
+            return argument.equals("false") || argument.equals("off")
+                    ? Style.empty().decoration(decoration, false)
+                    : Style.style(decoration);
         }
         if (name.startsWith("!")) {
             TextDecoration negated = DECORATIONS.get(name.substring(1));
@@ -1079,11 +1080,21 @@ final class NativeCompiler {
         return switch (name) {
             case "click" -> click(arguments);
             case "hover" -> {
-                if (arguments.size() != 2 || !arguments.getFirst().equals("show_text")) {
+                // The action is read with its case, as HoverTag does.
+                if (arguments.isEmpty()) {
                     throw unsupported();
                 }
-                Element hover = this.parse(arguments.get(1), false);
-                yield Style.style().hoverEvent(HoverEvent.showText(hover.build())).build();
+                yield switch (arguments.getFirst()) {
+                    case "show_text" -> {
+                        if (arguments.size() != 2) {
+                            throw unsupported();
+                        }
+                        yield Style.style().hoverEvent(HoverEvent.showText(this.parse(arguments.get(1), false).build())).build();
+                    }
+                    case "show_item" -> Style.style().hoverEvent(showItem(arguments)).build();
+                    case "show_entity" -> Style.style().hoverEvent(this.showEntity(arguments)).build();
+                    default -> throw unsupported();
+                };
             }
             case "insert" -> {
                 if (arguments.size() != 1) {
@@ -1110,18 +1121,32 @@ final class NativeCompiler {
      * The style of a click. {@code ClickEvent} is never named as a type: it is generic from Adventure 5.
      */
     private static @NotNull Style click(@NotNull List<String> arguments) {
+        if (arguments.size() < 2) {
+            throw unsupported();
+        }
+        // ClickTag reads the action in lower case.
+        String action = arguments.getFirst().toLowerCase(Locale.ROOT);
+        String value = arguments.get(1);
+        if (action.equals("custom")) {
+            if (arguments.size() > 3) {
+                throw unsupported();
+            }
+            return required(AdventureBridges.current().clickCustom(value, arguments.size() == 3 ? arguments.get(2) : null));
+        }
         if (arguments.size() != 2) {
             throw unsupported();
         }
-        String value = arguments.get(1);
+        if (action.equals("change_page")) {
+            return required(AdventureBridges.current().clickChangePage(value));
+        }
         Style.Builder style = Style.style();
         try {
-            switch (arguments.getFirst()) {
+            switch (action) {
                 case "run_command" -> style.clickEvent(ClickEvent.runCommand(value));
                 case "suggest_command" -> style.clickEvent(ClickEvent.suggestCommand(value));
                 case "open_url" -> style.clickEvent(ClickEvent.openUrl(value));
                 case "copy_to_clipboard" -> style.clickEvent(ClickEvent.copyToClipboard(value));
-                default -> throw unsupported();
+                default -> throw unsupported(); // show_dialog: MiniMessage 5.2 refuses it itself
             }
         } catch (IllegalArgumentException e) {
             throw unsupported(); // Adventure 5.1+ refuses an invalid URL: MiniMessage decides what that gives
@@ -1129,7 +1154,54 @@ final class NativeCompiler {
         return style.build();
     }
 
-    private static final Set<String> CLICK_ACTIONS = Set.of("run_command", "suggest_command", "open_url", "copy_to_clipboard");
+    private static @NotNull Style required(@Nullable Style style) {
+        if (style == null) {
+            throw unsupported();
+        }
+        return style;
+    }
+
+    /**
+     * {@code <hover:show_item:key[:count]>}, as HoverTag reads it (4.17 to 5.2). Item data components and legacy NBT
+     * (more arguments) stay with MiniMessage.
+     */
+    private static @NotNull HoverEvent<?> showItem(@NotNull List<String> arguments) {
+        if (arguments.size() < 2 || arguments.size() > 3) {
+            throw unsupported();
+        }
+        try {
+            net.kyori.adventure.key.Key key = net.kyori.adventure.key.Key.key(arguments.get(1));
+            int count = arguments.size() == 3 ? Integer.parseInt(arguments.get(2)) : 1;
+            return HoverEvent.showItem(key, count);
+        } catch (RuntimeException e) { // an invalid key or count: MiniMessage reports it
+            throw unsupported();
+        }
+    }
+
+    /**
+     * {@code <hover:show_entity:type:uuid[:name]>}, the name read as MiniMessage (natively here, without values).
+     */
+    private @NotNull HoverEvent<?> showEntity(@NotNull List<String> arguments) {
+        if (arguments.size() < 3 || arguments.size() > 4) {
+            throw unsupported();
+        }
+        net.kyori.adventure.key.Key type;
+        java.util.UUID id;
+        try {
+            type = net.kyori.adventure.key.Key.key(arguments.get(1));
+            id = java.util.UUID.fromString(arguments.get(2));
+        } catch (RuntimeException e) {
+            throw unsupported();
+        }
+        return arguments.size() == 4
+                ? HoverEvent.showEntity(type, id, this.parse(arguments.get(3), false).build().compact())
+                : HoverEvent.showEntity(type, id);
+    }
+
+    /**
+     * Click actions whose value may hold inline values (a click with values in its argument).
+     */
+    private static final Set<String> CLICK_ACTIONS = Set.of("run_command", "suggest_command", "open_url", "copy_to_clipboard", "change_page");
 
     /**
      * Reads a tag at {@code start} ({@code <}), or null when the text there is not a tag (it is then text).

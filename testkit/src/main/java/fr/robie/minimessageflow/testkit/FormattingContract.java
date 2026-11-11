@@ -461,6 +461,47 @@ public abstract class FormattingContract {
     }
 
     @Test
+    @DisplayName("Decoration arguments, every click action and item/entity hovers read as MiniMessage reads them")
+    void eventsAndDecorationArguments() {
+        TestFormatter reference = new ReferenceFormatter(Placeholder.empty());
+        TestFormatter formatter = this.formatter();
+        List<String> messages = List.of(
+                "<bold:off>a %v% <bold:on>b <i:yes>c <u:False>d <st:false>e",
+                "<click:RUN_COMMAND:'/x'>%v%</click>",
+                "<click:change_page:2>page %v%",
+                "<click:change_page:x>not a page %v%",
+                "<click:change_page:'%v%'>page from a value",
+                "<click:custom:'ns:key'>custom %v%",
+                "<click:custom:'ns:key':'{a:1b}'>custom with nbt %v%",
+                "<click:custom:'bad key'>bad %v%",
+                "<click:show_dialog:x>dialog %v%",
+                "<hover:show_item:diamond>item %v%",
+                "<hover:show_item:'minecraft:diamond':3>items %v%",
+                "<hover:show_item:stone:x>bad count %v%",
+                "<hover:show_item:stone:2:'{x:1}'>legacy nbt %v%",
+                "<hover:show_entity:'minecraft:zombie':069a79f4-44e9-4726-a5be-fca90e38aaf5:'<red>Zed'>entity %v%",
+                "<hover:show_entity:pig:069a79f4-44e9-4726-a5be-fca90e38aaf5>entity %v%",
+                "<hover:show_entity:pig:not-a-uuid>bad uuid %v%",
+                "<hover:SHOW_TEXT:'x'>case %v%");
+        for (String message : messages) {
+            for (String value : List.of("", "Steve", "3")) {
+                Placeholder values = Placeholder.of("v", value);
+                Component expected;
+                try {
+                    expected = reference.format(message, values, null);
+                } catch (RuntimeException e) {
+                    // MiniMessage itself throws on some of these in some versions (a non-numeric page on Adventure
+                    // 4.26): the engine must not hide it.
+                    assertThrows(RuntimeException.class, () -> formatter.format(message, values, null), message);
+                    continue;
+                }
+                assertEquals(ComponentRuns.of(expected), ComponentRuns.of(formatter.format(message, values, null)),
+                        message + " with '" + value + "'");
+            }
+        }
+    }
+
+    @Test
     @DisplayName("A gradient over a value with its own style reads as MiniMessage reads it")
     void colorChangeOverStyledValue() {
         TestFormatter reference = new ReferenceFormatter(Placeholder.empty());

@@ -500,6 +500,22 @@ Each stage is a release of the library and has an exit criterion.
    157 tests on all 5 versions. JMH: a message with a sprite, a head and 2 placeholders renders in 73 ± 8 ns on 5.2
    (native) and 479 ± 60 ns on 4.26 (MiniMessage, markers).
 
+   **Checked against every MiniMessage tag name (4.17, 4.26, 5.2), then the gaps inside supported tags covered
+   (2026-11-11).** No tag was missing; native now also:
+   - decoration arguments: `false` and `off` turn off, any other argument turns on (`DecorationTag`, same in 4.17; the
+     native compiler had only `true`/`false` before);
+   - click actions read in lower case (`<click:RUN_COMMAND:...>`), `change_page` through `AdventureBridge`
+     (Adventure 4 keeps the page as text; 5 needs an integer), `custom` (key, optional NBT) on Adventure 5;
+     `show_dialog` stays with MiniMessage, which refuses it;
+   - `<hover:show_item:key[:count]>` and `<hover:show_entity:type:uuid[:name]>` (name read natively), read the same in
+     4.17 and 5.2; the hover action keeps its case, as in `HoverTag`; item data components and legacy NBT stay with
+     MiniMessage.
+   - Found: on Adventure 4.26, `ClickEvent` parses a `change_page` page as a number and MiniMessage lets the
+     exception through, so `MiniMessage.deserialize("<click:change_page:x>")` throws. The engine leaves such a message
+     to MiniMessage, so it throws the same way; the contract checks that the engine throws where the reference does.
+   - Still not native: `pride`, `selector`, `score`, `nbt`, `show_item` with data components, `head` beyond a plain
+     name, and on Adventure 4 `shadow`, `sprite`, `head`, `custom`. 160 tests on all 5 versions.
+
 ## 8. Risks
 - Two engines (native + MiniMessage) can disagree: mitigated by the equivalence suite on every version, and by
   choosing the engine per message so they never mix inside one.

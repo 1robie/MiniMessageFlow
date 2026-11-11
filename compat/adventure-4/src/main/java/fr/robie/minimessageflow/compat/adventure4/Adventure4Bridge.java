@@ -87,4 +87,27 @@ public final class Adventure4Bridge implements AdventureBridge {
     public @Nullable Component head(@Nullable String name) {
         return null;
     }
+
+    /**
+     * MiniMessage 4.x builds every click from its action and a text value: {@code change_page} keeps the page as text.
+     */
+    @Override
+    public @Nullable Style clickChangePage(@NotNull String value) {
+        try {
+            return Style.style().clickEvent(net.kyori.adventure.text.event.ClickEvent.clickEvent(
+                    net.kyori.adventure.text.event.ClickEvent.Action.CHANGE_PAGE, value)).build();
+        } catch (RuntimeException e) {
+            // Later 4.x parse the page as a number and throw; MiniMessage 4.x lets that through: leaving the message
+            // to it gives the same outcome.
+            return null;
+        }
+    }
+
+    /**
+     * No custom click before Adventure 4.22, and not nameable here: it stays with MiniMessage on 4.x.
+     */
+    @Override
+    public @Nullable Style clickCustom(@NotNull String key, @Nullable String nbt) {
+        return null;
+    }
 }
