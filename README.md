@@ -36,6 +36,24 @@ Component once = text.format("<red>Hello %name%", Placeholder.of("name", "Steve"
   `templateCacheSize`, `valueCacheSize`, `cacheFactory(CacheFactory)` (your caches, for example Guava or Caffeine with
   an expiry; the default is a bounded map without dependency), `nativeCompiler(boolean)`.
 
+**Translations** for Adventure's `GlobalTranslator`, per player language:
+
+```java
+MiniMessageFlowTranslator translator = MiniMessageFlowTranslator.create(Key.key("myplugin", "messages"), text)
+        .register("shop.bought", Locale.ENGLISH, "<green>You bought <arg:0> for <gold><arg:1>")
+        .register("shop.bought", Locale.FRENCH, "<green>Tu as acheté %0% pour <gold>%1%")
+        .defaultLocale(Locale.ENGLISH);
+GlobalTranslator.translator().addSource(translator);
+
+player.sendMessage(Component.translatable("shop.bought", item, price));   // in the player's language
+```
+
+Arguments are `<arg:i>`/`<argument:i>` (as with MiniMessage's translator) or `%i%`/`<i>`; the locale falls back to its
+language, then to the default locale; the locale is the render's viewer (`Identity.LOCALE`). A template can use another
+of the same translator (`<lang:other.key>`) on every Adventure version (4.17's `GlobalTranslator` does not render those
+itself); a template that uses itself stops after 16 levels here, but Adventure 4.18+ renders what is left again, as it
+would with MiniMessage's translator.
+
 **Depend on the `minimessageflow` artifact** (the one jar with every Adventure bridge), not on `core`. Shade it and
 relocate it freely: it finds its bridges relative to its own package.
 

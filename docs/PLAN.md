@@ -516,6 +516,17 @@ Each stage is a release of the library and has an exit criterion.
    - Still not native: `pride`, `selector`, `score`, `nbt`, `show_item` with data components, `head` beyond a plain
      name, and on Adventure 4 `shadow`, `sprite`, `head`, `custom`. 160 tests on all 5 versions.
 
+   **Translation store done 2026-11-11: `MiniMessageFlowTranslator`** (in `core`), an Adventure `Translator` whose
+   templates are compiled when registered. Modelled on Adventure's `MiniMessageTranslator` (5.2), which exists only from
+   4.20: arguments `<arg:i>`/`<argument:i>` (and `%i%`, `<i>`) inserted as components, the translatable's style as a
+   fallback, its children appended, `translate(key, locale)` null; the locale as the viewer (`Identity.LOCALE`, like
+   its `LocalePointered`). Locale fallback: exact, language, default locale. `Translator`, `arguments()`,
+   `applyFallbackStyle` are the same from 4.17 to 5.2: no bridge needed. Found: Adventure 4.17's `GlobalTranslator`
+   does not render translatables inside what a translator returns (4.26 does), so the translator renders its own keys
+   inside its results itself, 16 levels at most. 169 tests on all 5 versions (`TranslatorTest`, also through
+   `GlobalTranslator.render`). MessageFlow keeps its own translator (`MessageFlowTranslator`) for now; moving it onto
+   this one is possible later.
+
 ## 8. Risks
 - Two engines (native + MiniMessage) can disagree: mitigated by the equivalence suite on every version, and by
   choosing the engine per message so they never mix inside one.
