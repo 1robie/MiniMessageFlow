@@ -83,18 +83,18 @@ JMH 1.37, JDK 25.0.3, Adventure 4.17, Windows desktop; `-wi 5 -i 10 -f 2`, ± is
 
 | Message | Compile | Allocated | One `MiniMessage.deserialize` |
 |---|---:|---:|---:|
-| no placeholder | 2.3 ± 0.2 µs | 5.7 KB | 1.8 ± 0.2 µs |
-| shop line (native) | 27.5 ± 3.4 µs | 63 KB | 6.4 ± 0.9 µs, 16 KB |
-| the same, `verifyNative(false)` | 24.5 ± 3.9 µs | 53 KB | |
-| value in a click argument (native) | 24.0 ± 3.0 µs | 65 KB | |
-| the same, `verifyNative(false)` | 12.9 ± 1.9 µs | 32 KB | |
-| other tags (`<font>`, `<lang>`: MiniMessage, markers) | 23.3 ± 6.0 µs | 45 KB | |
+| no placeholder | 2.3 ± 0.1 µs | 8.8 KB | 1.5 ± 0.1 µs, 5.2 KB |
+| shop line (native) | 10.0 ± 1.3 µs | 28 KB | 5.9 ± 0.5 µs, 16 KB |
+| the same, `verifyNative(false)` | **1.5 ± 0.2 µs** | 5.6 KB | |
+| value in a click argument (native) | 5.9 ± 0.3 µs | 18 KB | |
+| the same, `verifyNative(false)` | **1.0 ± 0.1 µs** | 4.1 KB | |
+| other tags (`<font>`, `<lang>`: MiniMessage, markers) | 17.7 ± 2.2 µs | 46 KB | |
 
-A message with placeholders costs about four `MiniMessage.deserialize` to compile, then renders 30 times faster:
-it pays for itself after a handful of sends. Most of the compile cost is not the check against MiniMessage
-(`verifyNative(false)` saves little) but the MiniMessage parses every compile makes: one to find the `<key>`
-placeholders, one per probe to choose the form. Compile what you send often once (MessageFlow compiles its messages
-on reload), or let `format` cache it.
+A message the native compiler takes is compiled without MiniMessage; the check (on by default) adds one MiniMessage
+parse to compare (two under a gradient or rainbow, whose colours depend on the values' length). So compiling costs
+1-2 `MiniMessage.deserialize` with the check, a quarter of one without it. A message with other tags goes through
+MiniMessage (a discovery parse and two probe parses): about three. Compile what you send often once (MessageFlow
+compiles its messages on reload), or let `format` cache it.
 
 ## Modules
 

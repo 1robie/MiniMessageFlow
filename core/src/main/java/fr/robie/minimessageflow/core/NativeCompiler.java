@@ -53,14 +53,16 @@ final class NativeCompiler {
     private final Engine.Slots slots;
     private final Set<Integer> unclaimed;
     private final boolean legacyCodes;
+    private final boolean discover;
 
     private NativeCompiler(@NotNull TagResolver standard, @Nullable TagResolver userTags, @NotNull Engine.Slots slots,
-                           @NotNull Set<Integer> unclaimed, boolean legacyCodes) {
+                           @NotNull Set<Integer> unclaimed, boolean legacyCodes, boolean discover) {
         this.standard = standard;
         this.userTags = userTags;
         this.slots = slots;
         this.unclaimed = unclaimed;
         this.legacyCodes = legacyCodes;
+        this.discover = discover;
     }
 
     /**
@@ -72,8 +74,18 @@ final class NativeCompiler {
      */
     static @Nullable List<Part> compile(@NotNull String text, @NotNull TagResolver standard, @Nullable TagResolver userTags,
                                         @NotNull Engine.Slots slots, @NotNull Set<Integer> unclaimed, boolean legacyCodes) {
+        return compile(text, standard, userTags, slots, unclaimed, legacyCodes, false);
+    }
+
+    /**
+     * @param discover whether {@code <key>} tags not yet in {@code slots} are added to it (the native compile of a new
+     *                 message; {@code slots} must then be a copy that is dropped when this returns null)
+     */
+    static @Nullable List<Part> compile(@NotNull String text, @NotNull TagResolver standard, @Nullable TagResolver userTags,
+                                        @NotNull Engine.Slots slots, @NotNull Set<Integer> unclaimed, boolean legacyCodes,
+                                        boolean discover) {
         try {
-            NativeCompiler compiler = new NativeCompiler(standard, userTags, slots, unclaimed, legacyCodes);
+            NativeCompiler compiler = new NativeCompiler(standard, userTags, slots, unclaimed, legacyCodes, discover);
             Element root = compiler.parse(text, true);
             return merge(reduce(root.children, Style.empty()));
         } catch (Unsupported e) {
@@ -155,6 +167,20 @@ final class NativeCompiler {
      * Inline value number {@code index}, written after the character {@code before}.
      */
     record Inline(int index, char before) {
+    }
+
+    /**
+     * Whether a gradient or rainbow is coloured at render: its colours depend on the values' length.
+     */
+    static boolean hasTransform(@NotNull List<Part> parts) {
+        for (Part part : parts) {
+            if (part instanceof Part.Transform
+                    || part instanceof Part.Group(Style style, List<Part> children) && hasTransform(children)
+                    || part instanceof Part.Event event && hasTransform(event.parts())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     static @Nullable Component render(@NotNull List<Part> parts, @Nullable Component @NotNull [] values) {
@@ -618,7 +644,9 @@ final class NativeCompiler {
                 if (this.standard.has(name)) {
                     throw unsupported();
                 }
-                Integer slot = this.slots.name(TagKeys.key(name, tag.arguments()), false);
+                // Discovering: a tag no standard or user tag claims is a <key> placeholder (as the stage 1 discovery parse
+                // claims it), its slot added to the table.
+                Integer slot = this.slots.name(TagKeys.key(name, tag.arguments()), this.discover);
                 if (slot == null || this.unclaimed.contains(slot)) {
                     pending.append(text, tag.start(), tag.end()); // an unknown tag: text, as MiniMessage shows it
                 } else if (!slotsAllowed) {

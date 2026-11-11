@@ -456,6 +456,16 @@ Each stage is a release of the library and has an exit criterion.
    "cold compile ≤ MiniMessage" target is missed by 4×. Ways to reach it, for a later stage: discover `<key>` tags with
    the native scanner instead of a MiniMessage parse; skip the probe parses when the native compiler accepts the
    message and the check is off.
+
+   **Done the same day: native first.** `Engine.compile` now tries the native compiler before any MiniMessage parse;
+   it finds the `<key>` placeholders itself, in a copy of the slot table dropped if it gives up (a `<key>` inside a
+   hover makes it give up, as before). The check parses once with probe values, twice only when a gradient or rainbow
+   is coloured at render. Messages the native compiler refuses take the stage 3 path unchanged. 153 tests on all 5
+   Adventure versions, check on and off. Compile (`-wi 5 -i 10 -f 2`), next to `MiniMessage.deserialize` at 5.9 µs:
+   shop line 27.5 → 10.0 µs with the check, **1.5 µs without**; click argument with a value 24.0 → 5.9 µs, **1.0 µs
+   without**; other tags 23.3 → 17.7 µs; static 2.3 µs (1.5 µs). The target (≤ MiniMessage) is met with
+   `verifyNative(false)`; with the check, the default, a native message costs 1-2 MiniMessage parses to compile.
+   Rendering unchanged (shop line 282 ns, 3 placeholders + click 133 ns).
 5. **More native tags** as benchmarks ask for them, Adventure 5.x-only tags in `compat/adventure-5`, translation
    store integration (`GlobalTranslator`) for per-player languages, docs site and 1.0.0.
 

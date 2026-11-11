@@ -136,11 +136,61 @@ public final class Engine {
         });
         List<Object> pieces = inlineKeys.isEmpty() ? null : pieces(tagged);
         String compiled = pieces == null ? tagged : join(pieces, new String[inlineKeys.size()]);
+        Template compiledNatively = this.compileNatively(source, tagged, compiled, slots, pieces, inlineKeys);
+        if (compiledNatively != null) {
+            return compiledNatively;
+        }
         // Finds the <key> slots; for a message without inline values, this is also its form.
         Form base = this.compileForm(compiled, slots, Set.of(), true);
         slots.freeze();
         Form.Native inline = pieces == null ? null : this.compileInline(tagged, pieces, inlineKeys.size(), slots);
         return new CompiledTemplate(this, source, compiled, slots, pieces, List.copyOf(inlineKeys), base, inline);
+    }
+
+    /**
+     * Compiles a message with the native compiler first, before any MiniMessage parse: it finds the {@code <key>}
+     * placeholders itself (in a copy of the slot table, dropped if it gives up). With the check on, one MiniMessage
+     * parse compares the result (two with a gradient or rainbow, whose colours depend on the values' length); with it
+     * off, none.
+     *
+     * @return the template, or null when the message needs the MiniMessage path
+     */
+    private @Nullable Template compileNatively(@NotNull String source, @NotNull String tagged, @NotNull String compiled,
+                                               @NotNull Slots slots, @Nullable List<Object> pieces, @NotNull List<String> inlineKeys) {
+        if (!this.nativeCompiler) {
+            return null;
+        }
+        Slots trial = slots.copy();
+        List<NativeCompiler.Part> parts = NativeCompiler.compile(this.legacy(tagged), StandardTags.defaults(), this.userTags,
+                trial, Set.of(), this.legacyCodes, true);
+        if (parts == null) {
+            return null;
+        }
+        trial.freeze();
+        if (this.verifyNative) {
+            boolean transform = NativeCompiler.hasTransform(parts);
+            for (boolean longer : transform ? new boolean[]{false, true} : new boolean[]{true}) {
+                Component[] probe = this.probe(trial, Set.of(), longer);
+                String[] inline = new String[inlineKeys.size()];
+                for (int i = 0; i < inline.length; i++) {
+                    inline[i] = PROBE + "i" + i + (longer ? "-longer probe value" : "") + PROBE;
+                }
+                String text = pieces == null ? compiled : join(pieces, inline);
+                Component reparsed = this.miniMessage.deserialize(this.legacy(text), new SlotTags(trial, Set.of(), false, probe));
+                if (!same(NativeCompiler.render(parts, probe, inline), reparsed)) {
+                    return null;
+                }
+            }
+        }
+        List<String> inlineKeysCopy = List.copyOf(inlineKeys);
+        if (pieces != null) {
+            Form.Native inline = new Form.Native(parts, null);
+            return new CompiledTemplate(this, source, compiled, trial, pieces, inlineKeysCopy, inline, inline);
+        }
+        Form base = trial.size() == 0
+                ? new Form.Static(Objects.requireNonNull(NativeCompiler.render(parts, new Component[0])))
+                : new Form.Native(parts, new Form.WithValues(compiled, Set.of(), trial));
+        return new CompiledTemplate(this, source, compiled, trial, null, inlineKeysCopy, base, null);
     }
 
     @NotNull Form compileForm(@NotNull String text, @NotNull Slots slots, @NotNull Set<Integer> unclaimed, boolean discover) {
@@ -608,6 +658,18 @@ public final class Engine {
         private final Map<String, Integer> percent = new HashMap<>(4);
         private final Map<String, Integer> names = new HashMap<>(4);
         private boolean frozen;
+
+        /**
+         * A copy that can grow apart from this one.
+         */
+        @NotNull Slots copy() {
+            Slots copy = new Slots();
+            copy.keys.addAll(this.keys);
+            copy.named.addAll(this.named);
+            copy.percent.putAll(this.percent);
+            copy.names.putAll(this.names);
+            return copy;
+        }
 
         int percent(@NotNull String key) {
             return this.percent.computeIfAbsent(key, k -> this.add(k, false));
