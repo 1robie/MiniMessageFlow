@@ -111,7 +111,7 @@ final class NativeCompiler {
         /**
          * A click, hover or insertion (with the style around it) over parts that hold values.
          */
-        record Group(@NotNull Style style, @NotNull List<Part> parts) implements Part {
+        record Group(@NotNull Style style, @NotNull List<Part> parts, @Nullable Component base) implements Part {
         }
 
         /**
@@ -175,7 +175,7 @@ final class NativeCompiler {
     static boolean hasTransform(@NotNull List<Part> parts) {
         for (Part part : parts) {
             if (part instanceof Part.Transform
-                    || part instanceof Part.Group(Style style, List<Part> children) && hasTransform(children)
+                    || part instanceof Part.Group(Style style, List<Part> children, Component base) && hasTransform(children)
                     || part instanceof Part.Event event && hasTransform(event.parts())) {
                 return true;
             }
@@ -208,12 +208,12 @@ final class NativeCompiler {
                         out.add(styled(value, style));
                     }
                 }
-                case Part.Group(Style style, List<Part> children) -> {
+                case Part.Group(Style style, List<Part> children, Component base) -> {
                     List<Component> rendered = renderParts(children, values, inline);
                     if (rendered == null) {
                         return null;
                     }
-                    out.add(Component.text("", style).children(rendered));
+                    out.add((base == null ? Component.text("", style) : base.style(style)).children(rendered));
                 }
                 case Part.Event(Style style, String action, Argument argument, List<Part> children) -> {
                     List<Component> rendered = renderParts(children, values, inline);
@@ -372,8 +372,9 @@ final class NativeCompiler {
                         parts.add(new Part.Transform(style, element.change, items(element.children, Style.empty())));
                     } else if (element.action != null) {
                         parts.add(new Part.Event(style, element.action, element.argument, merge(reduce(element.children, Style.empty()))));
-                    } else if (hasEvents(element.style)) {
-                        parts.add(new Part.Group(style, merge(reduce(element.children, Style.empty()))));
+                    } else if (hasEvents(element.style) || element.base != null) {
+                        // An event stays on its parent; a keybind or translatable wraps what follows it.
+                        parts.add(new Part.Group(style, merge(reduce(element.children, Style.empty())), element.base));
                     } else {
                         parts.addAll(reduce(element.children, style));
                     }
@@ -394,7 +395,7 @@ final class NativeCompiler {
                 case Node.Text(String text) -> items.add(new Item(text, -1, inherited));
                 case Node.Slot(int slot) -> items.add(new Item(null, slot, inherited));
                 case Element element -> {
-                    if (element.change != null || element.action != null || element.style.color() != null) {
+                    if (element.change != null || element.action != null || element.base != null || element.style.color() != null) {
                         throw unsupported();
                     }
                     items.addAll(items(element.children, element.style.merge(inherited, Style.Merge.Strategy.IF_ABSENT_ON_TARGET)));
@@ -458,17 +459,33 @@ final class NativeCompiler {
         final @Nullable ColorChange change;
         final List<Node> children = new ArrayList<>();
 
+        /**
+         * The component an inserting tag puts here ({@code <key>}, {@code <lang>}), that what follows it goes into;
+         * null for a styling tag.
+         */
+        final @Nullable Component base;
+
         Element(@NotNull String name, @NotNull Style style) {
-            this(name, style, null, null, null);
+            this(name, style, null, null, null, null);
+        }
+
+        Element(@NotNull String name, @NotNull Component base) {
+            this(name, Style.empty(), null, null, null, base);
         }
 
         Element(@NotNull String name, @NotNull Style style, @Nullable String action, @Nullable Argument argument,
                 @Nullable ColorChange change) {
+            this(name, style, action, argument, change, null);
+        }
+
+        private Element(@NotNull String name, @NotNull Style style, @Nullable String action, @Nullable Argument argument,
+                        @Nullable ColorChange change, @Nullable Component base) {
             this.name = name;
             this.style = style;
             this.action = action;
             this.argument = argument;
             this.change = change;
+            this.base = base;
         }
 
         /**
@@ -487,6 +504,9 @@ final class NativeCompiler {
         }
 
         boolean hasText() {
+            if (this.base != null) {
+                return true; // a keybind or translatable shows something
+            }
             for (Node child : this.children) {
                 if (child instanceof Node.Text(String text) && !text.isEmpty() || child instanceof Element element && element.hasText()) {
                     return true;
@@ -511,7 +531,7 @@ final class NativeCompiler {
                     case Node.Slot slot -> throw new IllegalStateException("slot in a fixed part");
                 }
             }
-            return Component.text("", this.style).children(built);
+            return (this.base == null ? Component.text("", this.style) : this.base.style(this.style)).children(built);
         }
     }
 
@@ -699,8 +719,174 @@ final class NativeCompiler {
         if (name.equals("rainbow")) {
             return new Element(name, Style.empty(), null, null, rainbow(arguments));
         }
-        Style style = this.nativeStyle(name, arguments);
-        return style == null ? null : new Element(name, style);
+        switch (name) {
+            case "key" -> {
+                if (arguments.size() != 1) {
+                    throw unsupported();
+                }
+                return new Element(name, Component.keybind(arguments.getFirst()));
+            }
+            case "lang", "tr", "translate" -> {
+                if (arguments.isEmpty()) {
+                    throw unsupported();
+                }
+                return new Element(name, Component.translatable(arguments.getFirst(), this.translationArguments(arguments, 1)));
+            }
+            case "lang_or", "tr_or", "translate_or" -> {
+                if (arguments.size() < 2) {
+                    throw unsupported();
+                }
+                return new Element(name, Component.translatable(arguments.getFirst(), arguments.get(1), this.translationArguments(arguments, 2)));
+            }
+            case "font" -> {
+                return new Element(name, font(arguments));
+            }
+            case "transition" -> {
+                return new Element(name, Style.style(transition(arguments)));
+            }
+            case "shadow", "!shadow" -> {
+                return new Element(name, shadow(name, arguments));
+            }
+            default -> {
+                Style style = this.nativeStyle(name, arguments);
+                return style == null ? null : new Element(name, style);
+            }
+        }
+    }
+
+    /**
+     * The arguments of a translatable from {@code from} on, each read as MiniMessage, as MiniMessage does
+     * ({@code ctx.deserialize}): natively here, without values.
+     */
+    private @NotNull List<Component> translationArguments(@NotNull List<String> arguments, int from) {
+        List<Component> with = new ArrayList<>(arguments.size() - from);
+        for (int i = from; i < arguments.size(); i++) {
+            with.add(this.parse(arguments.get(i), false).build().compact());
+        }
+        return with;
+    }
+
+    /**
+     * {@code <font:value>} or {@code <font:namespace:value>}.
+     */
+    private static @NotNull Style font(@NotNull List<String> arguments) {
+        try {
+            return switch (arguments.size()) {
+                case 1 -> Style.style().font(net.kyori.adventure.key.Key.key(arguments.getFirst())).build();
+                case 2 -> Style.style().font(net.kyori.adventure.key.Key.key(arguments.getFirst(), arguments.get(1))).build();
+                default -> throw unsupported();
+            };
+        } catch (Unsupported e) {
+            throw e;
+        } catch (RuntimeException e) { // InvalidKeyException: MiniMessage reports it
+            throw unsupported();
+        }
+    }
+
+    /**
+     * {@code <transition:colors...[:phase]>}: one colour, picked along the colours by the phase ({@code TransitionTag},
+     * the same maths from 4.17 to 5.2). Only arguments every version reads the same way: lower-case colour names,
+     * {@code #rrggbb}, a last numeric phase in [-1, 1] (4.17 reads the phase first, later versions the colour first;
+     * 4.17 has no {@code grey} alias).
+     */
+    private static @NotNull TextColor transition(@NotNull List<String> arguments) {
+        List<TextColor> colors = new ArrayList<>(arguments.size());
+        float phase = 0;
+        for (int i = 0; i < arguments.size(); i++) {
+            String argument = arguments.get(i);
+            TextColor color = argument.startsWith("#") ? (argument.length() == 7 ? TextColor.fromHexString(argument) : null)
+                    : NamedTextColor.NAMES.value(argument);
+            if (color != null) {
+                colors.add(color);
+                continue;
+            }
+            if (i != arguments.size() - 1) {
+                throw unsupported();
+            }
+            double parsed;
+            try {
+                parsed = Double.parseDouble(argument);
+            } catch (NumberFormatException e) {
+                throw unsupported();
+            }
+            if (!(parsed >= -1d && parsed <= 1d)) {
+                throw unsupported();
+            }
+            phase = (float) parsed;
+        }
+        if (!arguments.isEmpty() && colors.size() < 2) {
+            throw unsupported();
+        }
+        boolean negativePhase = phase < 0;
+        if (negativePhase) {
+            phase = 1 + phase;
+            Collections.reverse(colors);
+        }
+        if (colors.isEmpty()) {
+            colors.add(TextColor.color(0xffffff));
+            colors.add(TextColor.color(0x000000));
+        }
+        float steps = 1f / (colors.size() - 1);
+        for (int colorIndex = 1; colorIndex < colors.size(); colorIndex++) {
+            float value = colorIndex * steps;
+            if (value >= phase) {
+                float factor = 1 + (phase - value) * (colors.size() - 1);
+                return negativePhase
+                        ? TextColor.lerp(1 - factor, colors.get(colorIndex), colors.get(colorIndex - 1))
+                        : TextColor.lerp(factor, colors.get(colorIndex - 1), colors.get(colorIndex));
+            }
+        }
+        return colors.getFirst();
+    }
+
+    /**
+     * {@code <shadow:#rrggbbaa>}, {@code <shadow:color[:alpha]>} (alpha 0-1, 0.25 by default), {@code <!shadow>}: built
+     * by the bridge, as the type only exists from Adventure 4.18.
+     */
+    private static @NotNull Style shadow(@NotNull String name, @NotNull List<String> arguments) {
+        AdventureBridge bridge = AdventureBridges.current();
+        Style style;
+        if (name.equals("!shadow")) {
+            if (!arguments.isEmpty()) {
+                throw unsupported();
+            }
+            style = bridge.shadow(null, 0);
+        } else {
+            if (arguments.isEmpty() || arguments.size() > 2) {
+                throw unsupported();
+            }
+            String color = arguments.getFirst().toLowerCase(Locale.ROOT);
+            if (color.startsWith("#") && color.length() == 9) {
+                if (arguments.size() != 1) {
+                    throw unsupported();
+                }
+                int argb;
+                try {
+                    argb = (int) Long.parseLong(color.substring(1), 16);
+                } catch (NumberFormatException e) {
+                    throw unsupported();
+                }
+                style = bridge.shadow(TextColor.color(argb >>> 8), argb & 0xff);
+            } else {
+                TextColor text = color(color);
+                if (text == null) {
+                    throw unsupported();
+                }
+                float alpha = 0.25f;
+                if (arguments.size() == 2) {
+                    try {
+                        alpha = (float) Double.parseDouble(arguments.get(1));
+                    } catch (NumberFormatException e) {
+                        throw unsupported();
+                    }
+                }
+                style = bridge.shadow(text, (int) (alpha * 0xff));
+            }
+        }
+        if (style == null) {
+            throw unsupported();
+        }
+        return style;
     }
 
     /**

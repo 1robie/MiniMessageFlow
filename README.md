@@ -54,12 +54,13 @@ differently), except for four things done on purpose:
 ## How it is fast
 
 - **Compiled once.** Messages made only of colours, decorations, `reset`, `newline`, `click`, `hover`, `insert`,
-  `gradient`, `rainbow` and placeholders are compiled without MiniMessage: what never changes is built once, a render
-  only places the values (and colours a gradient, builds a click with its values). Each is checked against MiniMessage
-  when it is compiled, and left to MiniMessage if they differ.
-- **Other messages** (`<font>`, `<lang>`, `<transition>`, a user tag...) are parsed once by MiniMessage with a marker
-  where each value goes, and the markers are swapped at render; when that can't be done, they are parsed with their
-  values, cached by values.
+  `gradient`, `rainbow`, `transition`, `font`, `key`, `lang` (and `tr`, `translate`, `lang_or`...), `shadow` (on
+  Adventure 5) and placeholders are compiled without MiniMessage: what never changes is built once, a render only
+  places the values (and colours a gradient, builds a click with its values). Each is checked against MiniMessage when
+  it is compiled, and left to MiniMessage if they differ.
+- **Other messages** (`<selector>`, `<score>`, `<nbt>`, `<pride>`, `<shadow>` on Adventure 4, a user tag...) are parsed
+  once by MiniMessage with a marker where each value goes, and the markers are swapped at render; when that can't be
+  done, they are parsed with their values, cached by values.
 
 JMH 1.37, JDK 25.0.3, Adventure 4.17, Windows desktop; `-wi 5 -i 10 -f 2`, ± is the 99.9% error
 (`./gradlew :benchmarks:jmh`).
@@ -74,7 +75,9 @@ JMH 1.37, JDK 25.0.3, Adventure 4.17, Windows desktop; `-wi 5 -i 10 -f 2`, ± is
 | shop line: 2 placeholders, a modifier, a click | 245 ± 17 ns | 1.1 KB | 7.7 ± 1.7 µs, 16 KB |
 | the same, `<key>` placeholders | 261 ± 13 ns | 1.1 KB | |
 | the same, `format(String, ...)` | 242 ± 15 ns | 1.1 KB | |
-| the same, other tags (markers swapped in MiniMessage's tree) | 1.08 ± 0.09 µs | 3.8 KB | |
+| the same, tags that stay with MiniMessage (markers swapped in its tree) | 1.08 ± 0.09 µs | 3.8 KB | |
+| `<font>`, `<lang>`, `<key>`, `<transition>` + 2 placeholders (native) | 213 ± 39 ns | 952 B | |
+| `<selector>`, `<score>` + 2 placeholders (MiniMessage, markers) | 727 ± 47 ns | 2.1 KB | |
 | a global placeholder (resolver text, isolated) | 188 ± 18 ns | 848 B | |
 | click argument, same value / changing every send | 287 ± 39 / 422 ± 53 ns | 1.5 / 1.9 KB | |
 | gradient, same value / changing every send | 559 ± 48 / 556 ± 42 ns | 2.4 / 2.7 KB | |
@@ -88,7 +91,8 @@ JMH 1.37, JDK 25.0.3, Adventure 4.17, Windows desktop; `-wi 5 -i 10 -f 2`, ± is
 | the same, `verifyNative(false)` | **1.5 ± 0.2 µs** | 5.6 KB | |
 | value in a click argument (native) | 5.9 ± 0.3 µs | 18 KB | |
 | the same, `verifyNative(false)` | **1.0 ± 0.1 µs** | 4.1 KB | |
-| other tags (`<font>`, `<lang>`: MiniMessage, markers) | 17.7 ± 2.2 µs | 46 KB | |
+| `<font>`, `<lang>`, `<key>`, `<transition>` (native) | 15.6 ± 2.0 µs | 60 KB | |
+| `<selector>`, `<score>` (MiniMessage, markers) | 12.5 ± 1.3 µs | 43 KB | |
 
 A message the native compiler takes is compiled without MiniMessage; the check (on by default) adds one MiniMessage
 parse to compare (two under a gradient or rainbow, whose colours depend on the values' length). So compiling costs

@@ -1,8 +1,11 @@
 package fr.robie.minimessageflow.core;
 
 import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.format.Style;
+import net.kyori.adventure.text.format.TextColor;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * Everything of Adventure that differs between the supported versions. {@code core} never calls such an API
@@ -41,6 +44,14 @@ public interface AdventureBridge {
      * copy of what they wrap). Always false where Adventure has none.
      */
     boolean isVirtual(@NotNull Component component);
+
+    /**
+     * The style of {@code <shadow>}: a shadow of {@code color} with {@code alpha} (0-255), or no shadow
+     * ({@code <!shadow>}) when {@code color} is null. Null when this bridge builds no shadow colour (Adventure 4: none
+     * before 4.18, and the type can't be named in a bridge compiled against 4.17): such a message goes through
+     * MiniMessage.
+     */
+    @Nullable Style shadow(@Nullable TextColor color, int alpha);
 
     /**
      * For logs and errors: {@code "Adventure 4 (shadow colour: no, virtual components: no)"}.

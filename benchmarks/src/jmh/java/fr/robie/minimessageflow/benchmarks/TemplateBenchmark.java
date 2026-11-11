@@ -41,6 +41,13 @@ public class TemplateBenchmark {
     private final Template shopPlain = this.flow.compile("<green>%item%</green> for <gold>%price%</gold> <click:run_command:'/buy %id%'>[Buy]");
     private final Template threeValues = this.flow.compile("<green>%item%</green> for <gold>%price%</gold> <click:run_command:'/buy 42'>[Buy %n%]");
 
+    /**
+     * Font, translatable, keybind and transition (native since stage 5), and the same values with tags that stay with
+     * MiniMessage.
+     */
+    private final Template moreTags = this.flow.compile("<font:uniform>%item%</font> <lang:block.minecraft.stone> <key:key.jump> <transition:red:blue:0.4>%price%");
+    private final Template otherTags = this.flow.compile("<selector:@p> %item% <score:steve:kills> %price%");
+
     private final Placeholder shopValues = Placeholder.builder()
             .register("item", "Sword")
             .register("price", "1250")
@@ -62,6 +69,16 @@ public class TemplateBenchmark {
     @Benchmark
     public Component shopRender() {
         return this.shop.render(this.shopValues);
+    }
+
+    @Benchmark
+    public Component moreTagsRender() {
+        return this.moreTags.render(this.shopValues);
+    }
+
+    @Benchmark
+    public Component otherTagsRender() {
+        return this.otherTags.render(this.shopValues);
     }
 
     @Benchmark

@@ -25,7 +25,8 @@ public class CompileBenchmark {
 
     private static final String NATIVE = "<green>%item%</green> for <gold>%price.comma%</gold> <click:run_command:'/buy 42'>[Buy]";
     private static final String NATIVE_MINIMESSAGE = "<green><item></green> for <gold><price></gold> <click:run_command:'/buy 42'>[Buy]";
-    private static final String OTHER_TAGS = "<font:uniform>%item%</font> <lang:block.minecraft.stone> %price%";
+    private static final String OTHER_TAGS = "<selector:@p> %item% <score:steve:kills> %price%";
+    private static final String MORE_TAGS = "<font:uniform>%item%</font> <lang:block.minecraft.stone> <key:key.jump> <transition:red:blue:0.4>%price%";
     private static final String CLICK_VALUE = "<click:run_command:'/tp %name%'>[tp %name%]";
     private static final String STATIC = "<green>Welcome to the server!";
 
@@ -46,6 +47,14 @@ public class CompileBenchmark {
     @Benchmark
     public Template compileOtherTags() {
         return this.checked.compile(OTHER_TAGS);
+    }
+
+    /**
+     * Font, translatable, keybind and transition: native since stage 5.
+     */
+    @Benchmark
+    public Template compileMoreTags() {
+        return this.checked.compile(MORE_TAGS);
     }
 
     @Benchmark

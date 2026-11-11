@@ -469,6 +469,25 @@ Each stage is a release of the library and has an exit criterion.
 5. **More native tags** as benchmarks ask for them, Adventure 5.x-only tags in `compat/adventure-5`, translation
    store integration (`GlobalTranslator`) for per-player languages, docs site and 1.0.0.
 
+   **Native tags done 2026-11-11** (the owner chose this part only; Adventure 5 tags, the translation store and 1.0.0
+   are left). Written from MiniMessage's own source of 4.17, 4.26 and 5.2. 156 tests on all 5 Adventure versions,
+   check on and off.
+   - `font` (`<font:value>`, `<font:ns:value>`; an invalid key stays with MiniMessage), `key` and `lang`/`tr`/
+     `translate`, `lang_or`/`tr_or`/`translate_or`: inserting tags, so what follows them goes into the keybind or
+     translatable component (a group with a base component); translation arguments compiled natively, without values.
+   - `transition`: the colour computed at compile with `TransitionTag`'s maths (the negative phase reverses the colours
+     and interpolates backwards). Only arguments every version reads the same way: 4.17 reads the phase first and has
+     no `grey` alias, later versions read the colour first.
+   - `shadow` (`#rrggbbaa`, `color[:alpha]`, `<!shadow>`): built by `AdventureBridge.shadow`, as `ShadowColor` only
+     exists from 4.18. The Adventure 5 bridge builds it; the Adventure 4 bridge, compiled against 4.17, can't name the
+     type and returns null, so on 4.18-4.26 shadows stay with MiniMessage (correct, slower).
+   - Not native: `pride` (a gradient over a table of flags that MiniMessage changed between 4.26 and 5.2: copying it
+     would mean following every release), `selector`, `score`, `nbt`, and 5.x object tags.
+   - JMH (`-wi 5 -i 10 -f 2`): a message with `font`, `lang`, `key`, `transition` and 2 placeholders renders in
+     213 ± 39 ns (with `selector`/`score` instead, MiniMessage's path: 727 ± 47 ns). Its compile with the check is
+     15.6 µs, more than the MiniMessage path (12.5 µs): the check's MiniMessage parse reads the translatable and keybind
+     too. Without the check it is a native compile.
+
 ## 8. Risks
 - Two engines (native + MiniMessage) can disagree: mitigated by the equivalence suite on every version, and by
   choosing the engine per message so they never mix inside one.

@@ -3,6 +3,8 @@ package fr.robie.minimessageflow.compat.adventure4;
 import fr.robie.minimessageflow.core.AdventureBridge;
 import fr.robie.minimessageflow.core.Classes;
 import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.format.Style;
+import net.kyori.adventure.text.format.TextColor;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -60,5 +62,13 @@ public final class Adventure4Bridge implements AdventureBridge {
     @Override
     public boolean isVirtual(@NotNull Component component) {
         return this.virtualComponent != null && this.virtualComponent.isInstance(component);
+    }
+
+    /**
+     * Compiled against 4.17, which has no {@code ShadowColor}: {@code <shadow>} stays with MiniMessage on 4.x.
+     */
+    @Override
+    public @Nullable Style shadow(@Nullable TextColor color, int alpha) {
+        return null;
     }
 }

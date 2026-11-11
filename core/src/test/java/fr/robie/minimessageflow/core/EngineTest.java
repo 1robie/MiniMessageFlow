@@ -192,15 +192,27 @@ class EngineTest {
         for (String message : new String[]{"Hi %name%", "<red>Hi <bold>%name%</bold> &a%n.comma%", "<name> joined",
                 "<click:run_command:'/help'><u>%a%</u></click> <b>%b%</b>", "%a%%b%%a%",
                 "<green>%item%</green> for <gold>%price.comma%</gold> <click:run_command:'/buy 42'>[Buy]",
-                "<hover:show_text:'<red>Info'><!bold>%a%</hover> <#ff00aa>x<reset>%b%", "&c[%rank%] &f%name%"}) {
+                "<hover:show_text:'<red>Info'><!bold>%a%</hover> <#ff00aa>x<reset>%b%", "&c[%rank%] &f%name%",
+                "<lang:block.minecraft.stone> %a%", "<font:uniform>%a%</font>", "<key:key.jump> %a%", "<transition:red:blue:0.5>%a%"}) {
             assertInstanceOf(Engine.Form.Native.class, this.form(message), message);
+        }
+    }
+
+    @Test
+    @DisplayName("Shadows are native where the bridge builds them (Adventure 5), MiniMessage's on 4.x")
+    void shadowByBridge() {
+        Engine.Form form = this.form("<shadow:red>%a%</shadow> <!shadow>x");
+        if (AdventureBridges.current().major() >= 5) {
+            assertInstanceOf(Engine.Form.Native.class, form);
+        } else {
+            assertFalse(form instanceof Engine.Form.Native, form.toString());
         }
     }
 
     @Test
     @DisplayName("Messages with other tags swap markers in MiniMessage's tree: no parse per render either")
     void markerPath() {
-        for (String message : new String[]{"<lang:block.minecraft.stone> %a%", "<font:uniform>%a%</font>", "a < b > %c%"}) {
+        for (String message : new String[]{"<selector:@p> %a%", "<score:steve:kills> %a%", "a < b > %c%"}) {
             assertInstanceOf(Engine.Form.Markers.class, this.form(message), message);
         }
         MiniMessageFlow noNative = MiniMessageFlow.builder().nativeCompiler(false).build();

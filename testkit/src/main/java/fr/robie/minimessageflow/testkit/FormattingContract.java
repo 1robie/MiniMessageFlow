@@ -374,6 +374,9 @@ public abstract class FormattingContract {
             "<!red>", "<newline:x>", "<#12345>", "<color:nope>", "</nope>", "<gradient:red:blue>", "</gradient>",
             "<gradient:#ff0000:gold:0.5>", "<gradient:red:blue:-1>", "<gradient:red>", "<gradient:red:blue:2>", "<rainbow>",
             "<rainbow:!2>", "</rainbow>", "<rainbow:x>", "<click:run_command:'/tp %a%'>", "<insert:%h%>", "<click:suggest_command:/w %g%>",
+            "<font:uniform>", "</font>", "<key:key.jump>", "</key>", "<lang:block.minecraft.stone>", "</lang>",
+            "<tr:a.b:'<red>x'>", "<transition:red:blue:0.5>", "</transition>", "<transition:Red:blue>", "<shadow:red>",
+            "</shadow>", "<!shadow>", "<shadow:#00ff0080>", "<lang_or:x:'F'>", "<font:bad key>",
     };
 
     /**
@@ -409,6 +412,38 @@ public abstract class FormattingContract {
                 "<gradient:red:blue><v></gradient> <rainbow><v:upper></rainbow>");
         for (String message : messages) {
             for (String value : valuesOfEveryLength()) {
+                Placeholder values = Placeholder.of("v", value);
+                assertEquals(ComponentRuns.of(reference.format(message, values, null)),
+                        ComponentRuns.of(formatter.format(message, values, null)), message + " with '" + value + "'");
+            }
+        }
+    }
+
+    @Test
+    @DisplayName("Fonts, keybinds, translatables, transitions and shadows around values read as MiniMessage reads them")
+    void moreTagsAroundValues() {
+        TestFormatter reference = new ReferenceFormatter(Placeholder.empty());
+        TestFormatter formatter = this.formatter();
+        List<String> messages = List.of(
+                "<font:uniform>%v%</font> after",
+                "<font:minecraft:alt>x <bold>%v%</bold></font>",
+                "<key:key.jump>after %v%</key> out",
+                "<red><key:key.sneak><bold>%v%</bold></key> after",
+                "<lang:block.minecraft.stone> %v%",
+                "<tr:chat.type.text:'<red>a':'<bold>b'>%v%</tr> out",
+                "<translate:x.y>%v%",
+                "<lang_or:x.y:'Fallback':'a'> %v%",
+                "<transition:red:blue:0.3>%v%</transition> after",
+                "<transition:#ff0000:#00ff00:#0000ff:-0.4>%v%",
+                "<transition>%v%",
+                "<transition:red:blue>%v%",
+                "<shadow:red>%v%</shadow> after",
+                "<shadow:#ff000080>x %v%",
+                "<shadow:gold:0.5>y %v%",
+                "<shadow:red><!shadow>z %v%",
+                "<gradient:red:blue><font:uniform>%v%</font></gradient>");
+        for (String message : messages) {
+            for (String value : List.of("", "Steve", "<red>x")) {
                 Placeholder values = Placeholder.of("v", value);
                 assertEquals(ComponentRuns.of(reference.format(message, values, null)),
                         ComponentRuns.of(formatter.format(message, values, null)), message + " with '" + value + "'");
