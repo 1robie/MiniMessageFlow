@@ -1,5 +1,7 @@
 package fr.robie.minimessageflow;
 
+import fr.robie.minimessageflow.cache.Cache;
+import fr.robie.minimessageflow.cache.CacheFactory;
 import fr.robie.minimessageflow.core.BoundedCache;
 import fr.robie.minimessageflow.core.Engine;
 import net.kyori.adventure.pointer.Pointered;
@@ -29,12 +31,12 @@ import java.util.Objects;
 public final class MiniMessageFlow {
 
     private final Engine engine;
-    private final BoundedCache<String, Template> templates;
+    private final Cache<String, Template> templates;
 
     private MiniMessageFlow(@NotNull Builder builder) {
         this.engine = new Engine(builder.legacyCodes, builder.resolvers, builder.tags, builder.valueCacheSize,
-                builder.nativeCompiler, builder.verifyNative);
-        this.templates = new BoundedCache<>(builder.templateCacheSize);
+                builder.nativeCompiler, builder.verifyNative, builder.caches);
+        this.templates = builder.caches.create(CacheFactory.Kind.TEMPLATES, builder.templateCacheSize);
     }
 
     /**
@@ -82,6 +84,16 @@ public final class MiniMessageFlow {
         this.engine.clearCache();
     }
 
+    /**
+     * The default caches: {@link BoundedCache}.
+     */
+    private static final CacheFactory DEFAULT_CACHES = new CacheFactory() {
+        @Override
+        public <K, V> @NotNull Cache<K, V> create(@NotNull Kind kind, int maximumSize) {
+            return new BoundedCache<>(maximumSize);
+        }
+    };
+
     public static final class Builder {
         private boolean legacyCodes = true;
         private final List<Resolver> resolvers = new ArrayList<>();
@@ -90,6 +102,7 @@ public final class MiniMessageFlow {
         private int valueCacheSize = 512;
         private boolean nativeCompiler = true;
         private boolean verifyNative = true;
+        private CacheFactory caches = DEFAULT_CACHES;
 
         private Builder() {
         }
@@ -155,6 +168,15 @@ public final class MiniMessageFlow {
         @ApiStatus.Experimental
         public @NotNull Builder verifyNative(boolean verifyNative) {
             this.verifyNative = verifyNative;
+            return this;
+        }
+
+        /**
+         * How the caches are made. Default: bounded maps without expiry, dropping about a quarter of their entries
+         * when full (no dependency). A platform can pass its own, for example Guava or Caffeine with an expiry.
+         */
+        public @NotNull Builder cacheFactory(@NotNull CacheFactory caches) {
+            this.caches = Objects.requireNonNull(caches, "caches cannot be null");
             return this;
         }
 

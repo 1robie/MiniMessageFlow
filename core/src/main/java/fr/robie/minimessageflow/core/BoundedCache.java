@@ -14,7 +14,7 @@ import java.util.function.Function;
  * {@code ConcurrentHashMap} lookup and nothing else).
  */
 @ApiStatus.Internal
-public final class BoundedCache<K, V> {
+public final class BoundedCache<K, V> implements fr.robie.minimessageflow.cache.Cache<K, V> {
 
     private final int maximumSize;
     private final ConcurrentHashMap<K, V> map;
@@ -27,6 +27,7 @@ public final class BoundedCache<K, V> {
         this.map = new ConcurrentHashMap<>(Math.min(maximumSize, 64));
     }
 
+    @Override
     public @Nullable V getIfPresent(@NotNull K key) {
         return this.map.get(key);
     }
@@ -35,6 +36,7 @@ public final class BoundedCache<K, V> {
      * The cached value, or the one {@code loader} gives, cached. The loader runs outside any lock: two threads may
      * both load the same key, and one result is kept.
      */
+    @Override
     public @NotNull V get(@NotNull K key, @NotNull Function<? super K, ? extends V> loader) {
         V value = this.map.get(key);
         if (value != null) {
@@ -61,6 +63,7 @@ public final class BoundedCache<K, V> {
         return this.map.size();
     }
 
+    @Override
     public void clear() {
         this.map.clear();
     }

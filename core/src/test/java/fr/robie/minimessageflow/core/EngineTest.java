@@ -216,6 +216,54 @@ class EngineTest {
     }
 
     @Test
+    @DisplayName("A cache factory makes every cache, with the builder's sizes, and they are used")
+    void cacheFactory() {
+        java.util.Map<fr.robie.minimessageflow.cache.CacheFactory.Kind, Integer> sizes = new java.util.EnumMap<>(fr.robie.minimessageflow.cache.CacheFactory.Kind.class);
+        AtomicInteger loads = new AtomicInteger();
+        MiniMessageFlow flow = MiniMessageFlow.builder()
+                .templateCacheSize(7)
+                .valueCacheSize(9)
+                .resolver((key, viewer) -> key.equals("g") ? "<gold>G" : null)
+                .cacheFactory(new fr.robie.minimessageflow.cache.CacheFactory() {
+                    @Override
+                    public <K, V> fr.robie.minimessageflow.cache.@org.jetbrains.annotations.NotNull Cache<K, V> create(
+                            @org.jetbrains.annotations.NotNull Kind kind, int maximumSize) {
+                        sizes.put(kind, maximumSize);
+                        BoundedCache<K, V> inner = new BoundedCache<>(maximumSize);
+                        return new fr.robie.minimessageflow.cache.Cache<>() {
+                            @Override
+                            public V getIfPresent(K key) {
+                                return inner.getIfPresent(key);
+                            }
+
+                            @Override
+                            public V get(K key, java.util.function.Function<? super K, ? extends V> loader) {
+                                return inner.get(key, k -> {
+                                    loads.incrementAndGet();
+                                    return loader.apply(k);
+                                });
+                            }
+
+                            @Override
+                            public void clear() {
+                                inner.clear();
+                            }
+                        };
+                    }
+                })
+                .build();
+        assertEquals(java.util.Map.of(fr.robie.minimessageflow.cache.CacheFactory.Kind.TEMPLATES, 7,
+                fr.robie.minimessageflow.cache.CacheFactory.Kind.RESOLVER_TEXTS, 9,
+                fr.robie.minimessageflow.cache.CacheFactory.Kind.PARSED_WITH_VALUES, 9,
+                fr.robie.minimessageflow.cache.CacheFactory.Kind.INLINE_TEXTS, 9), sizes);
+        assertEquals("Hi G", PLAIN.serialize(flow.format("Hi %g%")));
+        int afterFirst = loads.get(); // the text compiled, the resolver text parsed
+        assertEquals("Hi G", PLAIN.serialize(flow.format("Hi %g%")));
+        assertEquals(afterFirst, loads.get(), "the second format only hits");
+        assertTrue(afterFirst >= 2);
+    }
+
+    @Test
     @DisplayName("The bounded cache stays bounded")
     void boundedCache() {
         BoundedCache<Integer, Integer> cache = new BoundedCache<>(100);

@@ -5,6 +5,8 @@ import fr.robie.minimessageflow.PlaceholderModifiers;
 import fr.robie.minimessageflow.PlaceholderValue;
 import fr.robie.minimessageflow.Resolver;
 import fr.robie.minimessageflow.Template;
+import fr.robie.minimessageflow.cache.Cache;
+import fr.robie.minimessageflow.cache.CacheFactory;
 import fr.robie.minimessageflow.internal.PlaceholderScanner;
 import net.kyori.adventure.pointer.Pointered;
 import net.kyori.adventure.text.Component;
@@ -70,21 +72,22 @@ public final class Engine {
     private final MiniMessage miniMessage;
     private final MiniMessage templateMiniMessage;
     private final AdventureBridge bridge;
-    private final BoundedCache<String, Component> resolverTexts;
-    private final BoundedCache<ValuesKey, Component> withValues;
-    private final BoundedCache<InlineKey, Form> inlineForms;
+    private final Cache<String, Component> resolverTexts;
+    private final Cache<ValuesKey, Component> withValues;
+    private final Cache<InlineKey, Form> inlineForms;
 
     /**
      * @param legacyCodes whether {@code &c}, {@code §c}, {@code #rrggbb}... are read
      * @param resolvers   asked in order for the placeholders a call doesn't give
      * @param userTags    extra MiniMessage tags, tried before the standard ones; null for none
      * @param cacheSize   the size of each value cache
+     * @param caches      makes the caches
      * @param nativeCompiler whether messages made only of native tags are compiled without MiniMessage
      * @param verifyNative   whether each native template is checked against MiniMessage when compiled (false only
      *                       to test the native compiler itself)
      */
     public Engine(boolean legacyCodes, @NotNull List<Resolver> resolvers, @Nullable TagResolver userTags, int cacheSize,
-                  boolean nativeCompiler, boolean verifyNative) {
+                  boolean nativeCompiler, boolean verifyNative, @NotNull CacheFactory caches) {
         this.legacyCodes = legacyCodes;
         this.nativeCompiler = nativeCompiler;
         this.verifyNative = verifyNative;
@@ -101,9 +104,9 @@ public final class Engine {
                 .postProcessor(component -> this.hasMarker(component) ? component : component.compact())
                 .build();
         this.bridge = AdventureBridges.current();
-        this.resolverTexts = new BoundedCache<>(cacheSize);
-        this.withValues = new BoundedCache<>(cacheSize);
-        this.inlineForms = new BoundedCache<>(cacheSize);
+        this.resolverTexts = caches.create(CacheFactory.Kind.RESOLVER_TEXTS, cacheSize);
+        this.withValues = caches.create(CacheFactory.Kind.PARSED_WITH_VALUES, cacheSize);
+        this.inlineForms = caches.create(CacheFactory.Kind.INLINE_TEXTS, cacheSize);
     }
 
     public void clearCache() {
