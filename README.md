@@ -5,9 +5,45 @@ colour codes (`&c`, `§c`, `&#rrggbb`, `#rrggbb`) and placeholders written `%nam
 once and renders it in nanoseconds. It runs on Adventure 4.17 (Paper 1.20.6) to 5.x (Minecraft 26), and has no
 dependency besides Adventure.
 
-It is the formatting engine of MessageFlow 1.2, tested on Paper 1.20.6, 1.21
-and 26. It is not published yet: `./gradlew publishToMavenLocal` installs `fr.robie.minimessageflow:minimessageflow`
-in the local Maven repository.
+It is the formatting engine of MessageFlow 1.2, tested on Paper 1.20.6, 1.21 and 26. Version 1.0.0
+([changelog](CHANGELOG.md), [how it was built](docs/PLAN.md)).
+
+## Install
+
+From [JitPack](https://jitpack.io/#1robie/MiniMessageFlow). Adventure is not included: Paper provides it.
+
+```kotlin
+// Gradle (Kotlin DSL)
+repositories {
+    maven("https://jitpack.io")
+}
+dependencies {
+    implementation("com.github.1robie:MiniMessageFlow:1.0.0")
+}
+// Shade it into your plugin and relocate it (shadow plugin):
+tasks.shadowJar {
+    relocate("fr.robie.minimessageflow", "your.plugin.libs.minimessageflow")
+}
+```
+
+```xml
+<!-- Maven -->
+<repository>
+    <id>jitpack.io</id>
+    <url>https://jitpack.io</url>
+</repository>
+
+<dependency>
+    <groupId>com.github.1robie</groupId>
+    <artifactId>MiniMessageFlow</artifactId>
+    <version>1.0.0</version>
+</dependency>
+<!-- maven-shade-plugin: <relocation><pattern>fr.robie.minimessageflow</pattern>
+     <shadedPattern>your.plugin.libs.minimessageflow</shadedPattern></relocation> -->
+```
+
+Relocating is safe: the library finds its Adventure bridges relative to its own package. A local build
+(`./gradlew publishToMavenLocal`) installs it as `fr.robie.minimessageflow:minimessageflow` instead.
 
 ## Use
 
@@ -53,9 +89,6 @@ language, then to the default locale; the locale is the render's viewer (`Identi
 of the same translator (`<lang:other.key>`) on every Adventure version (4.17's `GlobalTranslator` does not render those
 itself); a template that uses itself stops after 16 levels here, but Adventure 4.18+ renders what is left again, as it
 would with MiniMessage's translator.
-
-**Depend on the `minimessageflow` artifact** (the one jar with every Adventure bridge), not on `core`. Shade it and
-relocate it freely: it finds its bridges relative to its own package.
 
 ## Compared with MiniMessage
 

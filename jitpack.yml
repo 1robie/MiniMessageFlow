@@ -1,0 +1,5 @@
+jdk:
+  - openjdk21
+install:
+  # Tests run in CI on every Adventure of the matrix; JitPack only builds and installs the artifact.
+  - ./gradlew publishToMavenLocal -x test --console=plain

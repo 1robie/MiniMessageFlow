@@ -527,6 +527,15 @@ Each stage is a release of the library and has an exit criterion.
    `GlobalTranslator.render`). MessageFlow keeps its own translator (`MessageFlowTranslator`) for now; moving it onto
    this one is possible later.
 
+   **1.0.0 prepared 2026-11-11** (the owner chose JitPack, repository `github.com/1robie/MiniMessageFlow`): version
+   1.0.0; `jitpack.yml` (JDK 21, `publishToMavenLocal -x test`: tests run in CI); the one published artifact with full
+   POM metadata (MIT, developer, SCM; no e-mail) and a sources jar gathering `api`, `core` and both bridges. On JitPack
+   (`JITPACK=true`) it is published as `com.github.1robie:MiniMessageFlow`, so its POM and Gradle metadata match the
+   coordinates users request; a local build keeps `fr.robie.minimessageflow:minimessageflow`. Checked by building with
+   JDK 21 into an empty Maven repository, with and without `JITPACK=true`. `CHANGELOG.md` and the README's install
+   section (Gradle, Maven, relocation) added. Not done: Maven Central, `japicmp` (it needs 1.0.0 published as its
+   baseline), a docs site. Pushing and tagging are the owner's.
+
 ## 8. Risks
 - Two engines (native + MiniMessage) can disagree: mitigated by the equivalence suite on every version, and by
   choosing the engine per message so they never mix inside one.
