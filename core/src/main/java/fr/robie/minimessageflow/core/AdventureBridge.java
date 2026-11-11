@@ -54,6 +54,19 @@ public interface AdventureBridge {
     @Nullable Style shadow(@Nullable TextColor color, int alpha);
 
     /**
+     * The component of {@code <sprite:sprite>} ({@code atlas} null) or {@code <sprite:atlas:sprite>}, or null when this
+     * bridge builds no object component (they exist from Adventure 4.25; the Adventure 4 bridge can't name them) or a
+     * key is invalid: such a message goes through MiniMessage.
+     */
+    @Nullable Component sprite(@Nullable String atlas, @NotNull String sprite);
+
+    /**
+     * The component of {@code <head>} ({@code name} null: the viewer's head) or {@code <head:name>}, or null as for
+     * {@link #sprite}.
+     */
+    @Nullable Component head(@Nullable String name);
+
+    /**
      * For logs and errors: {@code "Adventure 4 (shadow colour: no, virtual components: no)"}.
      */
     default @NotNull String describe() {

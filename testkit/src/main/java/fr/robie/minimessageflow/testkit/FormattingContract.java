@@ -377,6 +377,7 @@ public abstract class FormattingContract {
             "<font:uniform>", "</font>", "<key:key.jump>", "</key>", "<lang:block.minecraft.stone>", "</lang>",
             "<tr:a.b:'<red>x'>", "<transition:red:blue:0.5>", "</transition>", "<transition:Red:blue>", "<shadow:red>",
             "</shadow>", "<!shadow>", "<shadow:#00ff0080>", "<lang_or:x:'F'>", "<font:bad key>",
+            "<sprite:item/diamond>", "<head>", "<head:Notch>", "<head:on>",
     };
 
     /**
@@ -441,6 +442,14 @@ public abstract class FormattingContract {
                 "<shadow:#ff000080>x %v%",
                 "<shadow:gold:0.5>y %v%",
                 "<shadow:red><!shadow>z %v%",
+                "<sprite:item/diamond> %v%",
+                "<red><sprite:blocks:block/stone>%v%</red>",
+                "<sprite:bad key> %v%",
+                "<head> %v%",
+                "<bold><head:Notch>%v%",
+                "<head:true> <head:on> <head:off> <head:Notch:false> %v%",
+                "<head:069a79f4-44e9-4726-a5be-fca90e38aaf5> <head:minecraft/textures/x> %v%",
+                "<head:name with space> <head:ThisNameIsWayTooLong> %v%",
                 "<gradient:red:blue><font:uniform>%v%</font></gradient>");
         for (String message : messages) {
             for (String value : List.of("", "Steve", "<red>x")) {

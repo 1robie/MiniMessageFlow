@@ -54,13 +54,14 @@ differently), except for four things done on purpose:
 ## How it is fast
 
 - **Compiled once.** Messages made only of colours, decorations, `reset`, `newline`, `click`, `hover`, `insert`,
-  `gradient`, `rainbow`, `transition`, `font`, `key`, `lang` (and `tr`, `translate`, `lang_or`...), `shadow` (on
-  Adventure 5) and placeholders are compiled without MiniMessage: what never changes is built once, a render only
-  places the values (and colours a gradient, builds a click with its values). Each is checked against MiniMessage when
-  it is compiled, and left to MiniMessage if they differ.
-- **Other messages** (`<selector>`, `<score>`, `<nbt>`, `<pride>`, `<shadow>` on Adventure 4, a user tag...) are parsed
-  once by MiniMessage with a marker where each value goes, and the markers are swapped at render; when that can't be
-  done, they are parsed with their values, cached by values.
+  `gradient`, `rainbow`, `transition`, `font`, `key`, `lang` (and `tr`, `translate`, `lang_or`...), placeholders, and
+  on Adventure 5 `shadow`, `sprite` and `head` (no argument, or a player name) are compiled without MiniMessage: what
+  never changes is built once, a render only places the values (and colours a gradient, builds a click with its
+  values). Each is checked against MiniMessage when it is compiled, and left to MiniMessage if they differ.
+- **Other messages** (`<selector>`, `<score>`, `<nbt>`, `<pride>`; `<shadow>`, `<sprite>`, `<head>` on Adventure 4;
+  `<head>` with a UUID, a texture or the hat argument; a user tag...) are parsed once by MiniMessage with a marker where
+  each value goes, and the markers are swapped at render; when that can't be done, they are parsed with their values,
+  cached by values.
 
 JMH 1.37, JDK 25.0.3, Adventure 4.17, Windows desktop; `-wi 5 -i 10 -f 2`, ± is the 99.9% error
 (`./gradlew :benchmarks:jmh`).
@@ -78,6 +79,8 @@ JMH 1.37, JDK 25.0.3, Adventure 4.17, Windows desktop; `-wi 5 -i 10 -f 2`, ± is
 | the same, tags that stay with MiniMessage (markers swapped in its tree) | 1.08 ± 0.09 µs | 3.8 KB | |
 | `<font>`, `<lang>`, `<key>`, `<transition>` + 2 placeholders (native) | 213 ± 39 ns | 952 B | |
 | `<selector>`, `<score>` + 2 placeholders (MiniMessage, markers) | 727 ± 47 ns | 2.1 KB | |
+| `<sprite>`, `<head:name>` + 2 placeholders, Adventure 5.2 (native) | 73 ± 8 ns | 328 B | |
+| the same on Adventure 4.26 (MiniMessage, markers) | 479 ± 60 ns | 1.4 KB | |
 | a global placeholder (resolver text, isolated) | 188 ± 18 ns | 848 B | |
 | click argument, same value / changing every send | 287 ± 39 / 422 ± 53 ns | 1.5 / 1.9 KB | |
 | gradient, same value / changing every send | 559 ± 48 / 556 ± 42 ns | 2.4 / 2.7 KB | |

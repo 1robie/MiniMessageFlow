@@ -46,6 +46,11 @@ final class NativeCompiler {
             Map.entry("obfuscated", TextDecoration.OBFUSCATED), Map.entry("obf", TextDecoration.OBFUSCATED));
 
     private static final Set<String> COLOR_TAGS = Set.of("color", "colour", "c");
+    /**
+     * A player name that is not a UUID, a texture key or a hat argument in any version: 1-16 letters, digits or _ ,
+     * and not true, on, false or off (the hat argument, read with exact case).
+     */
+    private static final java.util.regex.Pattern PLAYER_NAME = java.util.regex.Pattern.compile("(?!(?:true|false|on|off)$)[A-Za-z0-9_]{1,16}");
     private static final String[] NO_INLINE = new String[0];
 
     private final TagResolver standard;
@@ -361,6 +366,7 @@ final class NativeCompiler {
         for (Node node : nodes) {
             switch (node) {
                 case Node.Text(String text) -> parts.add(new Part.Fixed(Component.text(text, inherited)));
+                case Node.Insert(Component component) -> parts.add(new Part.Fixed(styled(component, inherited)));
                 case Node.Slot(int slot) -> parts.add(new Part.Value(slot, inherited));
                 case Element element -> {
                     Style style = element.style.merge(inherited, Style.Merge.Strategy.IF_ABSENT_ON_TARGET);
@@ -393,6 +399,7 @@ final class NativeCompiler {
         for (Node node : nodes) {
             switch (node) {
                 case Node.Text(String text) -> items.add(new Item(text, -1, inherited));
+                case Node.Insert insert -> throw unsupported(); // MiniMessage colours an object component as one character
                 case Node.Slot(int slot) -> items.add(new Item(null, slot, inherited));
                 case Element element -> {
                     if (element.change != null || element.action != null || element.base != null || element.style.color() != null) {
@@ -437,8 +444,14 @@ final class NativeCompiler {
 
     // --- parsing ------------------------------------------------------------------------------------------------
 
-    private sealed interface Node permits Node.Text, Node.Slot, Element {
+    private sealed interface Node permits Node.Text, Node.Slot, Node.Insert, Element {
         record Text(@NotNull String text) implements Node {
+        }
+
+        /**
+         * A component a self-closing tag puts here ({@code <sprite>}, {@code <head>}).
+         */
+        record Insert(@NotNull Component component) implements Node {
         }
 
         record Slot(int slot) implements Node {
@@ -508,7 +521,8 @@ final class NativeCompiler {
                 return true; // a keybind or translatable shows something
             }
             for (Node child : this.children) {
-                if (child instanceof Node.Text(String text) && !text.isEmpty() || child instanceof Element element && element.hasText()) {
+                if (child instanceof Node.Text(String text) && !text.isEmpty() || child instanceof Node.Insert
+                        || child instanceof Element element && element.hasText()) {
                     return true;
                 }
             }
@@ -527,6 +541,7 @@ final class NativeCompiler {
             for (Node child : this.children) {
                 switch (child) {
                     case Node.Text(String text) -> built.add(Component.text(text));
+                    case Node.Insert(Component component) -> built.add(component);
                     case Element element -> built.add(element.build());
                     case Node.Slot slot -> throw new IllegalStateException("slot in a fixed part");
                 }
@@ -659,6 +674,35 @@ final class NativeCompiler {
             case "newline", "br" -> {
                 expectNoArguments(tag);
                 pending.append('\n');
+            }
+            case "sprite" -> {
+                List<String> arguments = tag.arguments();
+                if (arguments.isEmpty() || arguments.size() > 2) {
+                    throw unsupported();
+                }
+                Component sprite = arguments.size() == 1
+                        ? AdventureBridges.current().sprite(null, arguments.getFirst())
+                        : AdventureBridges.current().sprite(arguments.getFirst(), arguments.get(1));
+                if (sprite == null) {
+                    throw unsupported();
+                }
+                flush(pending, current);
+                current.children.add(new Node.Insert(sprite));
+            }
+            case "head" -> {
+                // Only the forms every version reads the same way: the viewer's head, or a plain player name (5.2
+                // reads UUIDs and checks names differently from 4.26; textures and the hat argument stay with
+                // MiniMessage).
+                List<String> arguments = tag.arguments();
+                if (arguments.size() > 1 || (arguments.size() == 1 && !PLAYER_NAME.matcher(arguments.getFirst()).matches())) {
+                    throw unsupported();
+                }
+                Component head = AdventureBridges.current().head(arguments.isEmpty() ? null : arguments.getFirst());
+                if (head == null) {
+                    throw unsupported();
+                }
+                flush(pending, current);
+                current.children.add(new Node.Insert(head));
             }
             default -> {
                 if (this.standard.has(name)) {

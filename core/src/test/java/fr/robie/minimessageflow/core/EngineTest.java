@@ -201,12 +201,17 @@ class EngineTest {
     @Test
     @DisplayName("Shadows are native where the bridge builds them (Adventure 5), MiniMessage's on 4.x")
     void shadowByBridge() {
-        Engine.Form form = this.form("<shadow:red>%a%</shadow> <!shadow>x");
-        if (AdventureBridges.current().major() >= 5) {
-            assertInstanceOf(Engine.Form.Native.class, form);
-        } else {
-            assertFalse(form instanceof Engine.Form.Native, form.toString());
+        for (String message : new String[]{"<shadow:red>%a%</shadow> <!shadow>x", "<sprite:item/diamond> %a% <head> <head:Notch>"}) {
+            Engine.Form form = this.form(message);
+            if (AdventureBridges.current().major() >= 5) {
+                assertInstanceOf(Engine.Form.Native.class, form, message);
+            } else {
+                assertFalse(form instanceof Engine.Form.Native, message + ": " + form);
+            }
         }
+        // Forms the versions read differently stay with MiniMessage everywhere.
+        assertFalse(this.form("<head:069a79f4-44e9-4726-a5be-fca90e38aaf5> %a%") instanceof Engine.Form.Native);
+        assertFalse(this.form("<head:on> %a%") instanceof Engine.Form.Native);
     }
 
     @Test

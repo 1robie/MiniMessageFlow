@@ -71,6 +71,16 @@ public class TemplateBenchmark {
         return this.shop.render(this.shopValues);
     }
 
+    /**
+     * Sprite and head (object components): native on Adventure 5, MiniMessage's on 4.x.
+     */
+    private final Template objects = this.flow.compile("<sprite:item/diamond> %item% for %price% <head:Notch>");
+
+    @Benchmark
+    public Component objectsRender() {
+        return this.objects.render(this.shopValues);
+    }
+
     @Benchmark
     public Component moreTagsRender() {
         return this.moreTags.render(this.shopValues);

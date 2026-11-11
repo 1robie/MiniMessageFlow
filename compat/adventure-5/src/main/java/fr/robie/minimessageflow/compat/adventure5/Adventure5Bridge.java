@@ -7,6 +7,8 @@ import net.kyori.adventure.text.format.Style;
 import net.kyori.adventure.text.format.TextColor;
 import net.kyori.adventure.text.VirtualComponent;
 import net.kyori.adventure.text.format.ShadowColor;
+import net.kyori.adventure.text.object.ObjectContents;
+import net.kyori.adventure.key.Key;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -50,5 +52,23 @@ public final class Adventure5Bridge implements AdventureBridge {
     @Override
     public @NotNull Style shadow(@Nullable TextColor color, int alpha) {
         return Style.style().shadowColor(color == null ? ShadowColor.none() : ShadowColor.shadowColor(color, alpha)).build();
+    }
+
+    @Override
+    public @Nullable Component sprite(@Nullable String atlas, @NotNull String sprite) {
+        try {
+            return Component.object(atlas == null
+                    ? ObjectContents.sprite(Key.key(sprite))
+                    : ObjectContents.sprite(Key.key(atlas), Key.key(sprite)));
+        } catch (RuntimeException e) { // an invalid key: MiniMessage reports it
+            return null;
+        }
+    }
+
+    @Override
+    public @Nullable Component head(@Nullable String name) {
+        return Component.object(name == null
+                ? ObjectContents.playerHead().build()
+                : ObjectContents.playerHead().name(name).build());
     }
 }

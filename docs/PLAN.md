@@ -488,6 +488,18 @@ Each stage is a release of the library and has an exit criterion.
      15.6 µs, more than the MiniMessage path (12.5 µs): the check's MiniMessage parse reads the translatable and keybind
      too. Without the check it is a native compile.
 
+   **"Adventure 5.x-only tags": none exist.** MiniMessage 5.2's standard tags are exactly 4.26's. The tags newer than
+   the 4.17 baseline are `shadow` (done above), `sprite` and `head` (object components, Adventure 4.25+).
+   **`sprite` and `head` done 2026-11-11** through `AdventureBridge.sprite`/`head`: the Adventure 5 bridge builds
+   them; the Adventure 4 bridge, compiled against 4.17, can't name object components, so on 4.25-4.26 they stay with
+   MiniMessage. `sprite` (`<sprite:key>`, `<sprite:atlas:key>`) reads the same in 4.26 and 5.2. `head` changed (5.2
+   detects UUIDs another way and checks names; no 5.0/5.1 source was at hand), so it is native only as `<head>` or
+   `<head:name>` with a plain name (1-16 of `[A-Za-z0-9_]`, not `true`/`on`/`false`/`off`, which are the hat flag);
+   UUIDs, textures and the hat argument stay with MiniMessage. Both are self-closing tags that insert a component
+   (a new `Insert` node); inside a gradient they stay with MiniMessage (it colours an object as one character).
+   157 tests on all 5 versions. JMH: a message with a sprite, a head and 2 placeholders renders in 73 ± 8 ns on 5.2
+   (native) and 479 ± 60 ns on 4.26 (MiniMessage, markers).
+
 ## 8. Risks
 - Two engines (native + MiniMessage) can disagree: mitigated by the equivalence suite on every version, and by
   choosing the engine per message so they never mix inside one.

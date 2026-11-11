@@ -71,4 +71,20 @@ public final class Adventure4Bridge implements AdventureBridge {
     public @Nullable Style shadow(@Nullable TextColor color, int alpha) {
         return null;
     }
+
+    /**
+     * Object components exist from 4.25 and can't be named here: {@code <sprite>} stays with MiniMessage on 4.x.
+     */
+    @Override
+    public @Nullable Component sprite(@Nullable String atlas, @NotNull String sprite) {
+        return null;
+    }
+
+    /**
+     * As {@link #sprite}: {@code <head>} stays with MiniMessage on 4.x.
+     */
+    @Override
+    public @Nullable Component head(@Nullable String name) {
+        return null;
+    }
 }
