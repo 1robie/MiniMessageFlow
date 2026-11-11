@@ -446,6 +446,16 @@ Each stage is a release of the library and has an exit criterion.
      legacy conversion moved into a test helper, as the reference for `ColorConversionTest` and `TemplateCacheTest`.
    - **Blocks a release**: MiniMessageFlow is only in the local Maven repository; MessageFlow builds elsewhere (JitPack)
      fail until it is published.
+   **Full benchmark, 2026-11-11** (after stage 4; JMH 1.37, JDK 25.0.3, Adventure 4.17, `-wi 5 -i 10 -f 2`; every
+   number with its error is in the README). Rendering matches the stage 3 short runs within their noise (3
+   placeholders + click 155 ns, shop line 245 ns vs `MiniMessage.deserialize` 7.7 µs, changing click 422 ns, changing
+   gradient 556 ns, static render 1.4 ns). **Compiling had never been measured**: a message with placeholders takes
+   23-28 µs, about 4× one `MiniMessage.deserialize` (6.4 µs); a static message 2.3 µs (1.8 µs). `verifyNative(false)`
+   saves only 3 µs on a native message: the cost is the MiniMessage parses every compile makes (discovery of `<key>`
+   placeholders, and the two probe parses that choose between the marker form and parsing with values). The plan's
+   "cold compile ≤ MiniMessage" target is missed by 4×. Ways to reach it, for a later stage: discover `<key>` tags with
+   the native scanner instead of a MiniMessage parse; skip the probe parses when the native compiler accepts the
+   message and the check is off.
 5. **More native tags** as benchmarks ask for them, Adventure 5.x-only tags in `compat/adventure-5`, translation
    store integration (`GlobalTranslator`) for per-player languages, docs site and 1.0.0.
 

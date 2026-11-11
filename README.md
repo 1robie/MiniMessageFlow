@@ -61,18 +61,40 @@ differently), except for four things done on purpose:
   where each value goes, and the markers are swapped at render; when that can't be done, they are parsed with their
   values, cached by values.
 
-JMH, JDK 25 (`./gradlew :benchmarks:jmh`), short runs:
+JMH 1.37, JDK 25.0.3, Adventure 4.17, Windows desktop; `-wi 5 -i 10 -f 2`, ± is the 99.9% error
+(`./gradlew :benchmarks:jmh`).
 
-| Message | MiniMessageFlow | `MiniMessage.deserialize` |
-|---|---:|---:|
-| no placeholder | ~1 ns, 0 B | 1.4 µs |
-| 3 placeholders + click | 0.14 µs | |
-| shop line, 2 placeholders + modifier + click | 0.25 µs, 1.1 KB | 4.7 µs, 16 KB |
-| click argument, value changing every send | 0.34 µs | |
-| gradient, value changing every send | 0.49 µs | |
+**Rendering** a compiled message:
 
-Compiling is slower than one `MiniMessage.deserialize` (it parses with MiniMessage to check, not measured yet):
-compile what you send often once, or let `format` cache it.
+| Message | MiniMessageFlow | Allocated | `MiniMessage.deserialize` |
+|---|---:|---:|---:|
+| no placeholder, `Template.render()` | 1.4 ± 0.1 ns | 0 B | 1.9 ± 0.2 µs, 5.2 KB |
+| no placeholder, `format(String)` (cache lookup) | 3.0 ± 0.3 ns | 0 B | |
+| 3 placeholders + click | 155 ± 11 ns | 656 B | |
+| shop line: 2 placeholders, a modifier, a click | 245 ± 17 ns | 1.1 KB | 7.7 ± 1.7 µs, 16 KB |
+| the same, `<key>` placeholders | 261 ± 13 ns | 1.1 KB | |
+| the same, `format(String, ...)` | 242 ± 15 ns | 1.1 KB | |
+| the same, other tags (markers swapped in MiniMessage's tree) | 1.08 ± 0.09 µs | 3.8 KB | |
+| a global placeholder (resolver text, isolated) | 188 ± 18 ns | 848 B | |
+| click argument, same value / changing every send | 287 ± 39 / 422 ± 53 ns | 1.5 / 1.9 KB | |
+| gradient, same value / changing every send | 559 ± 48 / 556 ± 42 ns | 2.4 / 2.7 KB | |
+
+**Compiling** a message, once per text:
+
+| Message | Compile | Allocated | One `MiniMessage.deserialize` |
+|---|---:|---:|---:|
+| no placeholder | 2.3 ± 0.2 µs | 5.7 KB | 1.8 ± 0.2 µs |
+| shop line (native) | 27.5 ± 3.4 µs | 63 KB | 6.4 ± 0.9 µs, 16 KB |
+| the same, `verifyNative(false)` | 24.5 ± 3.9 µs | 53 KB | |
+| value in a click argument (native) | 24.0 ± 3.0 µs | 65 KB | |
+| the same, `verifyNative(false)` | 12.9 ± 1.9 µs | 32 KB | |
+| other tags (`<font>`, `<lang>`: MiniMessage, markers) | 23.3 ± 6.0 µs | 45 KB | |
+
+A message with placeholders costs about four `MiniMessage.deserialize` to compile, then renders 30 times faster:
+it pays for itself after a handful of sends. Most of the compile cost is not the check against MiniMessage
+(`verifyNative(false)` saves little) but the MiniMessage parses every compile makes: one to find the `<key>`
+placeholders, one per probe to choose the form. Compile what you send often once (MessageFlow compiles its messages
+on reload), or let `format` cache it.
 
 ## Modules
 
