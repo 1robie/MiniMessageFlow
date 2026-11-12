@@ -7,12 +7,16 @@ import fr.robie.minimessageflow.core.Engine;
 import net.kyori.adventure.pointer.Pointered;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.minimessage.tag.resolver.TagResolver;
+import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -38,7 +42,8 @@ public final class MiniMessageFlow {
 
     private MiniMessageFlow(@NotNull Builder builder) {
         this.engine = new Engine(builder.legacyCodes, builder.resolvers, builder.tags, builder.valueCacheSize,
-                builder.nativeCompiler, builder.verifyNative, builder.caches, builder.errors);
+                builder.nativeCompiler, builder.verifyNative, builder.caches, builder.errors, builder.modifiers.build(),
+                builder.bareHexColors);
         this.templates = builder.caches.create(CacheFactory.Kind.TEMPLATES, builder.templateCacheSize);
     }
 
@@ -62,6 +67,18 @@ public final class MiniMessageFlow {
     }
 
     /**
+     * Compiles the messages of a configuration at once, for a reload: the templates by the same keys, in the same
+     * order. {@link Template#kind()} tells which ones are slow to render, {@link Template#placeholders()} what each
+     * one asks for.
+     */
+    public @NotNull Map<String, Template> compileAll(@NotNull Map<String, String> messages) {
+        Objects.requireNonNull(messages, "messages cannot be null");
+        Map<String, Template> templates = new LinkedHashMap<>(messages.size() * 2);
+        messages.forEach((key, message) -> templates.put(key, this.compile(message)));
+        return Collections.unmodifiableMap(templates);
+    }
+
+    /**
      * Formats a message, compiling it the first time (cache bounded by {@link Builder#templateCacheSize}).
      */
     public @NotNull Component format(@NotNull String message, @NotNull Placeholder placeholders, @Nullable Pointered viewer) {
@@ -76,6 +93,17 @@ public final class MiniMessageFlow {
 
     public @NotNull Component format(@NotNull String message) {
         return this.format(message, Placeholder.empty(), null);
+    }
+
+    /**
+     * As {@link #format}, as plain text without colours or events: for a console or a log.
+     */
+    public @NotNull String formatPlain(@NotNull String message, @NotNull Placeholder placeholders, @Nullable Pointered viewer) {
+        return PlainTextComponentSerializer.plainText().serialize(this.format(message, placeholders, viewer));
+    }
+
+    public @NotNull String formatPlain(@NotNull String message, @NotNull Placeholder placeholders) {
+        return this.formatPlain(message, placeholders, null);
     }
 
     /**
@@ -122,6 +150,8 @@ public final class MiniMessageFlow {
         private boolean verifyNative = true;
         private CacheFactory caches = DEFAULT_CACHES;
         private @Nullable BiConsumer<String, Throwable> errors;
+        private final ModifierSet.Builder modifiers = ModifierSet.builder();
+        private boolean bareHexColors = true;
 
         private Builder() {
         }
@@ -132,6 +162,27 @@ public final class MiniMessageFlow {
          */
         public @NotNull Builder legacyCodes(boolean legacyCodes) {
             this.legacyCodes = legacyCodes;
+            return this;
+        }
+
+        /**
+         * Whether a {@code #rrggbb} written without {@code &} is a colour, when legacy codes are read. Default: true.
+         * With false, {@code Issue #123456} keeps its number; {@code &#rrggbb} and {@code <#rrggbb>} are still
+         * colours.
+         */
+        public @NotNull Builder bareHexColors(boolean bareHexColors) {
+            this.bareHexColors = bareHexColors;
+            return this;
+        }
+
+        /**
+         * Adds a modifier of this instance only ({@code %key.name%}, {@code <key:name>}), used before a shared one of
+         * {@link PlaceholderModifiers} with the same name.
+         *
+         * @param name the name, case-insensitive, without {@code .} or {@code :}
+         */
+        public @NotNull Builder modifier(@NotNull String name, @NotNull PlaceholderModifiers.Modifier modifier) {
+            this.modifiers.add(name, modifier);
             return this;
         }
 

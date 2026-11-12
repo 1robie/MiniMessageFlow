@@ -1,7 +1,7 @@
 package fr.robie.minimessageflow.core;
 
 import fr.robie.minimessageflow.Placeholder;
-import fr.robie.minimessageflow.PlaceholderModifiers;
+import fr.robie.minimessageflow.ModifierSet;
 import fr.robie.minimessageflow.PlaceholderValue;
 import fr.robie.minimessageflow.Resolver;
 import fr.robie.minimessageflow.Template;
@@ -78,6 +78,8 @@ public final class Engine {
     private final Cache<ValuesKey, Component> withValues;
     private final Cache<InlineKey, Form> inlineForms;
     private final BiConsumer<String, Throwable> errors;
+    private final ModifierSet modifiers;
+    private final boolean bareHex;
 
     /**
      * @param legacyCodes whether {@code &c}, {@code §c}, {@code #rrggbb}... are read
@@ -89,11 +91,15 @@ public final class Engine {
      * @param verifyNative   whether each native template is checked against MiniMessage when compiled (false only
      *                       to test the native compiler itself)
      * @param errors         told the key and the exception when a resolver or a value throws
+     * @param modifiers      the modifiers of placeholders
+     * @param bareHex        whether a {@code #rrggbb} without {@code &} is a colour (with legacy codes on)
      */
     public Engine(boolean legacyCodes, @NotNull List<Resolver> resolvers, @Nullable TagResolver userTags, int cacheSize,
                   boolean nativeCompiler, boolean verifyNative, @NotNull CacheFactory caches,
-                  @NotNull BiConsumer<String, Throwable> errors) {
+                  @NotNull BiConsumer<String, Throwable> errors, @NotNull ModifierSet modifiers, boolean bareHex) {
         this.errors = errors;
+        this.modifiers = modifiers;
+        this.bareHex = bareHex;
         this.legacyCodes = legacyCodes;
         this.nativeCompiler = nativeCompiler;
         this.verifyNative = verifyNative;
@@ -165,7 +171,7 @@ public final class Engine {
             return null;
         }
         Slots trial = slots.copy();
-        List<NativeCompiler.Part> parts = NativeCompiler.compile(this.legacy(tagged), StandardTags.defaults(), this.userTags,
+        List<NativeCompiler.Part> parts = NativeCompiler.compile(this.legacy(tagged), StandardTags.defaults(), this.userTags, this.modifiers,
                 trial, Set.of(), true);
         if (parts == null) {
             return null;
@@ -214,7 +220,7 @@ public final class Engine {
         Component shortParsed = this.miniMessage.deserialize(this.legacy(text), new SlotTags(slots, unclaimed, false, shortProbe));
         Component longParsed = this.miniMessage.deserialize(this.legacy(text), new SlotTags(slots, unclaimed, false, longProbe));
         if (this.nativeCompiler) {
-            List<NativeCompiler.Part> parts = NativeCompiler.compile(this.legacy(text), StandardTags.defaults(), this.userTags,
+            List<NativeCompiler.Part> parts = NativeCompiler.compile(this.legacy(text), StandardTags.defaults(), this.userTags, this.modifiers,
                     slots, unclaimed);
             // Checked against MiniMessage with the same probe values: a message the native compiler would read
             // differently stays with MiniMessage.
@@ -256,7 +262,7 @@ public final class Engine {
         if (!this.nativeCompiler) {
             return null;
         }
-        List<NativeCompiler.Part> parts = NativeCompiler.compile(this.legacy(tagged), StandardTags.defaults(), this.userTags,
+        List<NativeCompiler.Part> parts = NativeCompiler.compile(this.legacy(tagged), StandardTags.defaults(), this.userTags, this.modifiers,
                 slots, Set.of());
         if (parts == null) {
             return null;
@@ -318,7 +324,7 @@ public final class Engine {
                 if (Engine.this.tags.has(name)) {
                     return null;
                 }
-                Integer named = this.slots.name(TagKeys.key(name, arguments), this.discover);
+                Integer named = this.slots.name(TagKeys.key(name, arguments, Engine.this.modifiers), this.discover);
                 if (named == null || this.unclaimed.contains(named)) {
                     return null;
                 }
@@ -368,7 +374,7 @@ public final class Engine {
         }
         boolean modifiers = key.indexOf('.') > 0;
         if (modifiers) {
-            String text = PlaceholderModifiers.resolve(key, k -> {
+            String text = this.modifiers.resolve(key, k -> {
                 PlaceholderValue base = placeholders.get(k);
                 return base == null ? null : PLAIN.serialize(this.toComponent(k, base, viewer));
             });
@@ -384,7 +390,7 @@ public final class Engine {
         }
         if (modifiers) {
             for (Resolver resolver : this.resolvers) {
-                String text = PlaceholderModifiers.resolve(key, k -> k.equals(key) ? null : this.resolve(resolver, k, viewer));
+                String text = this.modifiers.resolve(key, k -> k.equals(key) ? null : this.resolve(resolver, k, viewer));
                 if (text != null) {
                     return this.parseResolverText(text);
                 }
@@ -440,7 +446,7 @@ public final class Engine {
     }
 
     private @NotNull String legacy(@NotNull String text) {
-        return this.legacyCodes ? LegacyCodes.toMiniMessage(text) : text;
+        return this.legacyCodes ? LegacyCodes.toMiniMessage(text, this.bareHex) : text;
     }
 
     // --- markers ------------------------------------------------------------------------------------------------

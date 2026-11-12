@@ -63,7 +63,8 @@ Component once = text.format("<red>Hello %name%", Placeholder.of("name", "Steve"
 ```
 
 - **Placeholders**: `%name%` and `<name>` are the same placeholder. Modifiers: `%price.comma%`, `<price:comma>`,
-  `<n:plural:item:items>`, `%name.upper%`... (`PlaceholderModifiers.register` adds yours). A value of the call is plain
+  `<n:plural:item:items>`, `%name.upper%`... (yours: `modifier(...)` on the builder, or
+  `PlaceholderModifiers.register` for every instance, before messages are compiled). A value of the call is plain
   text, never read as tags or colour codes (`Placeholder.of("x", component)` for styled values). A value can also
   depend on the viewer (`Placeholder.of("hp", viewer -> ...)`). Without a value, a placeholder stays as written.
 - **Resolvers** give the values a call doesn't: global placeholders, PlaceholderAPI... Their text is formatted, and
@@ -72,7 +73,12 @@ Component once = text.format("<red>Hello %name%", Placeholder.of("name", "Steve"
   `templateCacheSize`, `valueCacheSize`, `cacheFactory(CacheFactory)` (your caches, for example Guava or Caffeine with
   an expiry; the default is a bounded map without dependency), `nativeCompiler(boolean)`,
   `errorHandler(BiConsumer<String, Throwable>)` (told when a resolver or a value throws; by default one warning per
-  key in the log).
+  key in the log), `modifier(name, modifier)` (a modifier of this instance only), `bareHexColors(boolean)` (false: a
+  `#rrggbb` without `&` is text, so `Issue #123456` keeps its number).
+- **A template** tells what it is: `placeholders()` lists the keys it asks for (compare with the keys you give to
+  find a `%palyer%`), `kind()` how it renders (`STATIC`, `NATIVE`, `MARKERS`, `PARSED`, fastest first), and
+  `renderPlain(...)` gives plain text for a console or a log. `compileAll(Map)` compiles a configuration at once on
+  reload.
 - **Legacy codes** are read in text and in a hover's text, not inside a `<click>` or `<insert>` tag: a URL keeps
   its `&b=2` and `#abcdef`.
 
@@ -88,8 +94,8 @@ GlobalTranslator.translator().addSource(translator);
 player.sendMessage(Component.translatable("shop.bought", item, price));   // in the player's language
 ```
 
-Arguments are `<arg:i>`/`<argument:i>` (as with MiniMessage's translator) or `%i%`/`<i>`; the locale falls back to its
-language, then to the default locale; the locale is the render's viewer (`Identity.LOCALE`). A template can use another
+Arguments are `<arg:i>`/`<argument:i>` (as with MiniMessage's translator) or `%i%`/`<i>`; the locale falls back as
+resource bundles do (`zh_Hant_TW` to `zh_Hant`, `zh_TW`, `zh`, then `Locale.ROOT`), then to the default locale; the locale is the render's viewer (`Identity.LOCALE`). A template can use another
 of the same translator (`<lang:other.key>`) on every Adventure version (4.17's `GlobalTranslator` does not render those
 itself); a template that uses itself stops after 16 levels here, but Adventure 4.18+ renders what is left again, as it
 would with MiniMessage's translator.
@@ -185,6 +191,9 @@ Needs a JDK 21 for the toolchain; Gradle itself runs on 17+.
 
 `.github/workflows/build.yml` runs `build` on 4.17.0, 4.26.1, 5.0.1, 5.1.1 and 5.2.0 (not run yet: the repository
 has no remote).
+
+JitPack builds a tag with `./gradlew build publishToMavenLocal`: the tests run (on Adventure 4.17.0) before the jar is
+published. [CONTRIBUTING.md](CONTRIBUTING.md) has the release checklist.
 
 ## Rules
 

@@ -10,6 +10,17 @@
 - `errorHandler` on the builder: a resolver or a value that throws is no longer silent. By default it is logged
   once per key (`System.getLogger("MiniMessageFlow")`). `Resolver.of(Placeholder)` lets a failing value through
   to it.
+- `modifier(name, modifier)` on the builder: modifiers of one instance (`ModifierSet`), known before any message is
+  compiled. `PlaceholderModifiers.register` stays, shared by every instance.
+- `bareHexColors(false)` on the builder: a `#rrggbb` without `&` is text.
+- `Template.placeholders()`, `Template.kind()`, `Template.renderPlain(...)`; `MiniMessageFlow.compileAll(Map)` and
+  `formatPlain(...)`.
+- `Placeholder.of(Map)` and `Placeholder.Builder.registerAll(Map)`. Removed: `Placeholder.PLACEHOLDER_PATTERN`, a
+  regular expression nothing used.
+- `MiniMessageFlowTranslator` falls back like resource bundles: `zh_Hant_TW` to `zh_Hant`, `zh_TW`, `zh`, then a
+  template registered for `Locale.ROOT`, then the default locale.
+- Tags are found exactly as MiniMessage's tokenizer finds them, checked against it on every Adventure of the matrix
+  (`TagRangesTest`). Each bridge has its own tests. JitPack runs the tests before publishing.
 
 ## 1.0.0
 

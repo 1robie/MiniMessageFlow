@@ -1,5 +1,6 @@
 jdk:
   - openjdk21
 install:
-  # Tests run in CI on every Adventure of the matrix; JitPack only builds and installs the artifact.
-  - ./gradlew publishToMavenLocal -x test --console=plain
+  # The tests run here too (on the default Adventure, 4.17.0), so a tag is never published without them; CI runs
+  # them on every Adventure of the matrix.
+  - ./gradlew build publishToMavenLocal --console=plain

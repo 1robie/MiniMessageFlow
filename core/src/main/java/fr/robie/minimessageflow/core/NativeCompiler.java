@@ -1,5 +1,6 @@
 package fr.robie.minimessageflow.core;
 
+import fr.robie.minimessageflow.ModifierSet;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.TextComponent;
 import net.kyori.adventure.text.event.ClickEvent;
@@ -58,14 +59,16 @@ final class NativeCompiler {
 
     private final TagResolver standard;
     private final @Nullable TagResolver userTags;
+    private final ModifierSet modifiers;
     private final Engine.Slots slots;
     private final Set<Integer> unclaimed;
     private final boolean discover;
 
-    private NativeCompiler(@NotNull TagResolver standard, @Nullable TagResolver userTags, @NotNull Engine.Slots slots,
+    private NativeCompiler(@NotNull TagResolver standard, @Nullable TagResolver userTags, @NotNull ModifierSet modifiers, @NotNull Engine.Slots slots,
                            @NotNull Set<Integer> unclaimed, boolean discover) {
         this.standard = standard;
         this.userTags = userTags;
+        this.modifiers = modifiers;
         this.slots = slots;
         this.unclaimed = unclaimed;
         this.discover = discover;
@@ -76,19 +79,19 @@ final class NativeCompiler {
      *             ({@link Engine#INLINE_START}) in click and insert arguments
      * @return the parts, or null when the message needs MiniMessage
      */
-    static @Nullable List<Part> compile(@NotNull String text, @NotNull TagResolver standard, @Nullable TagResolver userTags,
+    static @Nullable List<Part> compile(@NotNull String text, @NotNull TagResolver standard, @Nullable TagResolver userTags, @NotNull ModifierSet modifiers,
                                         @NotNull Engine.Slots slots, @NotNull Set<Integer> unclaimed) {
-        return compile(text, standard, userTags, slots, unclaimed, false);
+        return compile(text, standard, userTags, modifiers, slots, unclaimed, false);
     }
 
     /**
      * @param discover whether {@code <key>} tags not yet in {@code slots} are added to it (the native compile of a new
      *                 message; {@code slots} must then be a copy that is dropped when this returns null)
      */
-    static @Nullable List<Part> compile(@NotNull String text, @NotNull TagResolver standard, @Nullable TagResolver userTags,
+    static @Nullable List<Part> compile(@NotNull String text, @NotNull TagResolver standard, @Nullable TagResolver userTags, @NotNull ModifierSet modifiers,
                                         @NotNull Engine.Slots slots, @NotNull Set<Integer> unclaimed, boolean discover) {
         try {
-            NativeCompiler compiler = new NativeCompiler(standard, userTags, slots, unclaimed, discover);
+            NativeCompiler compiler = new NativeCompiler(standard, userTags, modifiers, slots, unclaimed, discover);
             Element root = compiler.parse(text, true);
             return merge(reduce(root.children, Style.empty()));
         } catch (Unsupported e) {
@@ -703,7 +706,7 @@ final class NativeCompiler {
                 }
                 // Discovering: a tag no standard or user tag claims is a <key> placeholder (as the stage 1 discovery parse
                 // claims it), its slot added to the table.
-                Integer slot = this.slots.name(TagKeys.key(name, tag.arguments()), this.discover);
+                Integer slot = this.slots.name(TagKeys.key(name, tag.arguments(), this.modifiers), this.discover);
                 if (slot == null || this.unclaimed.contains(slot)) {
                     pending.append(text, tag.start(), tag.end()); // an unknown tag: text, as MiniMessage shows it
                 } else if (!slotsAllowed) {

@@ -19,11 +19,18 @@ public final class LegacyCodes {
     }
 
     public static @NotNull String toMiniMessage(@NotNull String message) {
+        return toMiniMessage(message, true);
+    }
+
+    /**
+     * @param bareHex whether a {@code #rrggbb} without {@code &} is a colour ({@code &#rrggbb} always is)
+     */
+    public static @NotNull String toMiniMessage(@NotNull String message, boolean bareHex) {
         int length = message.length();
         int i = 0;
         while (i < length) {
             char c = message.charAt(i);
-            if (c == '&' || c == '§' || c == '#') {
+            if (c == '&' || c == '§' || (c == '#' && bareHex)) {
                 break;
             }
             i++;
@@ -67,7 +74,7 @@ public final class LegacyCodes {
                     i += 2;
                     continue;
                 }
-            } else if (c == '#' && isHex(message, i + 1) && !afterTagStart(out)) {
+            } else if (c == '#' && bareHex && isHex(message, i + 1) && !afterTagStart(out)) {
                 out.append('<').append(message, i, i + 7).append('>');
                 i += 7;
                 continue;

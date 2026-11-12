@@ -145,4 +145,16 @@ class TranslatorTest {
         assertEquals("Welcome to Lobby, Steve",
                 PLAIN.serialize(withGlobals.translate(Component.translatable("welcome", Component.text("Steve")), Locale.ENGLISH)));
     }
+
+    @Test
+    @DisplayName("A locale falls back as resource bundles do: script and country dropped, then the root locale")
+    void localeCandidates() {
+        this.translator.register("fallback", Locale.CHINESE, "zh").register("fallback", Locale.ROOT, "root")
+                .register("fallback", Locale.forLanguageTag("zh-Hant"), "zh-Hant");
+        Component key = Component.translatable("fallback");
+        assertEquals("zh-Hant", this.plain(key, Locale.forLanguageTag("zh-Hant-TW")));
+        assertEquals("zh", this.plain(key, Locale.forLanguageTag("zh-Hans-CN")));
+        assertEquals("zh", this.plain(key, Locale.forLanguageTag("zh-Hans")));
+        assertEquals("root", this.plain(key, Locale.GERMANY));
+    }
 }

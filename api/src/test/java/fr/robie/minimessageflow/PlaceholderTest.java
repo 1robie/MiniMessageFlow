@@ -197,4 +197,17 @@ class PlaceholderTest {
         assertFalse(p.isViewerDependent("name: %name%"));
         assertFalse(Placeholder.of("name", "John").isViewerDependent("%name%"));
     }
+
+    @org.junit.jupiter.api.Test
+    @org.junit.jupiter.api.DisplayName("A Placeholder from a map: every pair, null as empty")
+    void ofMap() {
+        java.util.Map<String, String> values = new java.util.HashMap<>();
+        values.put("a", "1");
+        values.put("b", null);
+        Placeholder p = Placeholder.of(values);
+        org.junit.jupiter.api.Assertions.assertEquals("1--", p.parse("%a%-%b%-"));
+        org.junit.jupiter.api.Assertions.assertSame(Placeholder.empty(), Placeholder.of(java.util.Map.of()));
+        org.junit.jupiter.api.Assertions.assertEquals("1 2", Placeholder.builder().register("a", "0")
+                .registerAll(java.util.Map.of("a", "1", "c", "2")).build().parse("%a% %c%"));
+    }
 }

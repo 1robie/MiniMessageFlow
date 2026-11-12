@@ -21,6 +21,11 @@ import java.util.function.Predicate;
  * A key that contains a dot is looked up as is first ({@code %server.name%} stays a placeholder of its own). An
  * unknown modifier, or one that fails (a number modifier on text, a missing argument), keeps the token as it is so
  * the mistake is visible.
+ * <p>
+ * The modifiers registered here are shared by everything that uses this class. Register them before compiling
+ * messages: {@code <name:mine>} is read as a modifier only if {@code mine} is one when the message is compiled. For
+ * modifiers of one {@code MiniMessageFlow} only, use its builder ({@code modifier(name, modifier)}, a
+ * {@link ModifierSet}).
  *
  * <table>
  *   <caption>Built-in modifiers</caption>
@@ -137,12 +142,18 @@ public final class PlaceholderModifiers {
      * @param modifier the modifier
      */
     public static void register(@NotNull String name, @NotNull Modifier modifier) {
+        MODIFIERS.put(checkName(name), Objects.requireNonNull(modifier, "modifier cannot be null"));
+    }
+
+    /**
+     * @return the name as modifiers are stored, in lower case
+     */
+    static @NotNull String checkName(@NotNull String name) {
         Objects.requireNonNull(name, "name cannot be null");
         if (name.isBlank() || name.indexOf('.') >= 0 || name.indexOf(':') >= 0) {
             throw new IllegalArgumentException("name cannot be blank or contain '.' or ':'");
         }
-        Objects.requireNonNull(modifier, "modifier cannot be null");
-        MODIFIERS.put(name.toLowerCase(Locale.ROOT), modifier);
+        return name.toLowerCase(Locale.ROOT);
     }
 
     /**
@@ -163,6 +174,11 @@ public final class PlaceholderModifiers {
      * @return the value, or null to keep the token
      */
     public static @Nullable String resolve(@NotNull String key, @NotNull Function<String, String> lookup) {
+        return resolve(key, lookup, PlaceholderModifiers::get);
+    }
+
+    static @Nullable String resolve(@NotNull String key, @NotNull Function<String, String> lookup,
+                                    @NotNull Function<String, Modifier> modifiers) {
         String direct = lookup.apply(key);
         if (direct != null) {
             return direct;
@@ -170,7 +186,7 @@ public final class PlaceholderModifiers {
         for (int dot = key.lastIndexOf('.'); dot > 0; dot = key.lastIndexOf('.', dot - 1)) {
             String value = lookup.apply(key.substring(0, dot));
             if (value != null) {
-                return apply(value, key.substring(dot + 1));
+                return apply(value, key.substring(dot + 1), modifiers);
             }
         }
         return null;
@@ -204,17 +220,21 @@ public final class PlaceholderModifiers {
      * @return the new value, or null if a modifier is unknown or fails
      */
     public static @Nullable String apply(@NotNull String value, @NotNull String chain) {
+        return apply(value, chain, PlaceholderModifiers::get);
+    }
+
+    static @Nullable String apply(@NotNull String value, @NotNull String chain, @NotNull Function<String, Modifier> modifiers) {
         List<String> segments = split(chain, '.');
         String current = value;
         int i = 0;
         while (i < segments.size()) {
             String segment = segments.get(i++);
             // A dot followed by something that isn't a modifier belongs to an argument: add:1.5
-            while (i < segments.size() && !isModifier(segments.get(i))) {
+            while (i < segments.size() && !isModifier(segments.get(i), modifiers)) {
                 segment = segment + '.' + segments.get(i++);
             }
             int colon = segment.indexOf(':');
-            Modifier modifier = get(colon < 0 ? segment : segment.substring(0, colon));
+            Modifier modifier = modifiers.apply(colon < 0 ? segment : segment.substring(0, colon));
             if (modifier == null) {
                 return null;
             }
@@ -235,10 +255,10 @@ public final class PlaceholderModifiers {
      * Whether a segment after a dot starts a new modifier, or continues the previous one's argument. Only an exact,
      * lower-case modifier name starts one, so {@code default:Mr.Length} keeps {@code Mr.Length} as its argument.
      */
-    private static boolean isModifier(@NotNull String segment) {
+    private static boolean isModifier(@NotNull String segment, @NotNull Function<String, Modifier> modifiers) {
         int colon = segment.indexOf(':');
         String name = colon < 0 ? segment : segment.substring(0, colon);
-        return name.equals(name.toLowerCase(Locale.ROOT)) && get(name) != null;
+        return name.equals(name.toLowerCase(Locale.ROOT)) && modifiers.apply(name) != null;
     }
 
     private static @NotNull List<String> split(@NotNull String text, char separator) {

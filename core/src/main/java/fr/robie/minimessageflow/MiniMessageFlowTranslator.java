@@ -33,8 +33,10 @@ import java.util.concurrent.ConcurrentHashMap;
  * <ul>
  *     <li>Argument {@code i} of the translatable is written {@code <arg:i>} or {@code <argument:i>} (as with
  *     MiniMessage's translator), or {@code %i%} / {@code <i>}. It is inserted as a component: its own style is kept.</li>
- *     <li>The language: the exact locale, then its language alone ({@code fr_CA} → {@code fr}), then the default
- *     locale ({@link #defaultLocale}); without any, the translatable is left to other sources.</li>
+ *     <li>The language: the exact locale, then its less specific forms as resource bundles fall back ({@code fr_CA}
+ *     → {@code fr}; {@code zh_Hant_TW} → {@code zh_Hant}, {@code zh_TW}, {@code zh}), then a template registered for
+ *     {@link Locale#ROOT}, then the default locale ({@link #defaultLocale}); without any, the translatable is left to
+ *     other sources.</li>
  *     <li>The viewer of a render is the locale (its {@link Identity#LOCALE} pointer), so a viewer value or resolver can
  *     read it. The translatable's style is applied where the template sets none, and its children are appended, as
  *     MiniMessage's translator does.</li>
@@ -172,16 +174,32 @@ public final class MiniMessageFlowTranslator implements Translator {
         return rendered == null ? component : component.children(rendered);
     }
 
+    /**
+     * The less specific locales of each locale asked for, as resource bundles fall back: {@code zh_Hant_TW} gives
+     * {@code zh_Hant}, {@code zh_TW}, {@code zh}, then {@link Locale#ROOT}.
+     */
+    private static final Map<Locale, List<Locale>> CANDIDATES = new ConcurrentHashMap<>();
+
+    private static @NotNull List<Locale> candidates(@NotNull Locale locale) {
+        List<Locale> candidates = new java.util.ArrayList<>(java.util.ResourceBundle.Control
+                .getControl(java.util.ResourceBundle.Control.FORMAT_DEFAULT).getCandidateLocales("", locale));
+        candidates.remove(locale);
+        return List.copyOf(candidates);
+    }
+
     private @Nullable Template find(@NotNull Map<Locale, Template> byLocale, @NotNull Locale locale) {
         Template template = byLocale.get(locale);
-        if (template == null && !locale.getCountry().isEmpty()) {
-            template = byLocale.get(Locale.of(locale.getLanguage()));
+        if (template != null) {
+            return template;
+        }
+        for (Locale candidate : CANDIDATES.computeIfAbsent(locale, MiniMessageFlowTranslator::candidates)) {
+            template = byLocale.get(candidate);
+            if (template != null) {
+                return template;
+            }
         }
         Locale fallback = this.defaultLocale;
-        if (template == null && fallback != null) {
-            template = byLocale.get(fallback);
-        }
-        return template;
+        return fallback != null ? byLocale.get(fallback) : null;
     }
 
     /**

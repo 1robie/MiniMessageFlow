@@ -385,4 +385,58 @@ class EngineTest {
         assertEquals("<gold>B", resolver.resolve("b", null));
         assertNull(resolver.resolve("c", null));
     }
+
+    @Test
+    @DisplayName("A modifier of one instance: read in both syntaxes there, unknown elsewhere")
+    void instanceModifiers() {
+        MiniMessageFlow shouting = MiniMessageFlow.builder().modifier("Shout", (value, args) -> value.toUpperCase() + "!").build();
+        Placeholder name = Placeholder.of("n", "bob");
+        assertEquals("BOB! BOB! BOB", shouting.formatPlain("%n.shout% <n:shout> %n.upper%", name));
+        assertEquals("%n.shout% <n:shout>", this.flow.formatPlain("%n.shout% <n:shout>", name));
+        assertNull(fr.robie.minimessageflow.PlaceholderModifiers.get("shout"));
+        // One of the instance replaces a shared one with the same name.
+        MiniMessageFlow quiet = MiniMessageFlow.builder().modifier("upper", (value, args) -> value).build();
+        assertEquals("bob", quiet.formatPlain("<n:upper>", name));
+        assertThrows(IllegalArgumentException.class, () -> MiniMessageFlow.builder().modifier("a.b", (value, args) -> value));
+    }
+
+    @Test
+    @DisplayName("bareHexColors(false): a #rrggbb without & is text, &#rrggbb is still a colour")
+    void bareHexOff() {
+        assertEquals("Issue  fixed", this.flow.formatPlain("Issue #123456 fixed", Placeholder.empty()));
+        MiniMessageFlow flow = MiniMessageFlow.builder().bareHexColors(false).build();
+        Component rendered = flow.format("Issue #123456 &#ff0000fixed &aok");
+        assertEquals("Issue #123456 fixed ok", PLAIN.serialize(rendered));
+        assertEquals(ComponentRuns.of(MiniMessage.miniMessage().deserialize("Issue #123456 <#ff0000>fixed <green>ok")), ComponentRuns.of(rendered));
+    }
+
+    @Test
+    @DisplayName("A template tells how it renders and which placeholders it asks for")
+    void kindAndPlaceholders() {
+        assertEquals(Template.Kind.STATIC, this.flow.compile("<green>hi").kind());
+        assertEquals(Template.Kind.NATIVE, this.flow.compile("<red>%a%").kind());
+        assertEquals(Template.Kind.NATIVE, this.flow.compile("<click:run_command:'/x %a%'>x").kind());
+        assertEquals(Template.Kind.MARKERS, this.flow.compile("<selector:@p> %a%").kind());
+        assertEquals(Template.Kind.PARSED, this.flow.compile("<hover:show_text:'<name>'>x").kind());
+        assertEquals(Template.Kind.PARSED, this.flow.compile("<hover:show_text:'%a%'>x").kind());
+
+        Template shop = this.flow.compile("<green>%item%</green> <price:comma> <click:run_command:'/buy %id%'>x %item%</click> <b>");
+        assertEquals(java.util.List.of("item", "price.comma", "id"), shop.placeholders());
+        assertEquals(java.util.List.of(), this.flow.compile("<green>hi 100%").placeholders());
+        assertEquals("Sword 1,250 x Sword ", shop.renderPlain(Placeholder.builder()
+                .register("item", "Sword").register("price", "1250").register("id", "42").build()));
+    }
+
+    @Test
+    @DisplayName("compileAll compiles a configuration, keys and order kept")
+    void compileAll() {
+        java.util.Map<String, String> messages = new java.util.LinkedHashMap<>();
+        messages.put("welcome", "<green>Welcome %name%");
+        messages.put("motd", "<gold>Hello");
+        java.util.Map<String, Template> templates = this.flow.compileAll(messages);
+        assertEquals(java.util.List.of("welcome", "motd"), java.util.List.copyOf(templates.keySet()));
+        assertEquals("Welcome Steve", templates.get("welcome").renderPlain(Placeholder.of("name", "Steve")));
+        assertTrue(templates.get("motd").isStatic());
+        assertThrows(UnsupportedOperationException.class, () -> templates.put("x", templates.get("motd")));
+    }
 }

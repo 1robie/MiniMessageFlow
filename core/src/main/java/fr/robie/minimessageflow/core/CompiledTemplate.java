@@ -49,6 +49,8 @@ final class CompiledTemplate implements Template {
      */
     private final @Nullable Engine.Form.Native inline;
     private final boolean isStatic;
+    private final Kind kind;
+    private final List<String> placeholders;
     private final ConcurrentHashMap<Set<Integer>, Engine.Form> variants = new ConcurrentHashMap<>();
 
     CompiledTemplate(@NotNull Engine engine, @NotNull String source, @NotNull String compiled, @NotNull Engine.Slots slots,
@@ -76,6 +78,22 @@ final class CompiledTemplate implements Template {
         this.base = base;
         this.inline = inline;
         this.isStatic = pieces == null && slots.size() == 0 && base instanceof Engine.Form.Static;
+        if (pieces != null) {
+            this.kind = inline != null ? Kind.NATIVE : Kind.PARSED;
+        } else {
+            this.kind = switch (base) {
+                case Engine.Form.Static ignored -> Kind.STATIC;
+                case Engine.Form.Native ignored -> Kind.NATIVE;
+                case Engine.Form.Markers ignored -> Kind.MARKERS;
+                case Engine.Form.WithValues ignored -> Kind.PARSED;
+            };
+        }
+        Set<String> keys = new java.util.LinkedHashSet<>();
+        for (int slot = 0; slot < slots.size(); slot++) {
+            keys.add(slots.key(slot));
+        }
+        keys.addAll(inlineKeys);
+        this.placeholders = List.copyOf(keys);
     }
 
     private static int firstSlot(@NotNull Engine.Slots slots, @NotNull String key) {
@@ -95,6 +113,16 @@ final class CompiledTemplate implements Template {
     @Override
     public boolean isStatic() {
         return this.isStatic;
+    }
+
+    @Override
+    public @NotNull Kind kind() {
+        return this.kind;
+    }
+
+    @Override
+    public @NotNull List<String> placeholders() {
+        return this.placeholders;
     }
 
     @Override

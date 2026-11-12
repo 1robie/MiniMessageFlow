@@ -12,7 +12,6 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.function.Function;
 import java.util.function.Supplier;
-import java.util.regex.Pattern;
 
 /**
  * Represents a collection of named placeholders for message formatting.
@@ -50,10 +49,6 @@ import java.util.regex.Pattern;
  * </pre>
  */
 public final class Placeholder {
-    /**
-     * Pattern used to identify placeholders in strings (e.g., %key%).
-     */
-    public static final Pattern PLACEHOLDER_PATTERN = Pattern.compile("%[^% ]+%");
     private static final Placeholder EMPTY = new Placeholder(Collections.emptyMap());
 
     private final Map<String, PlaceholderValue> placeholders;
@@ -225,6 +220,19 @@ public final class Placeholder {
     }
 
     /**
+     * Creates a Placeholder from a map of static values, for example read from a configuration.
+     *
+     * @param values the keys and their values (null values become empty strings)
+     * @return a Placeholder containing every pair
+     */
+    public static @NotNull Placeholder of(@NotNull Map<String, String> values) {
+        if (values.isEmpty()) {
+            return EMPTY;
+        }
+        return builder().registerAll(values).build();
+    }
+
+    /**
      * Creates a builder for constructing Placeholder instances with multiple key-value pairs.
      *
      * @return a new Builder instance
@@ -298,6 +306,17 @@ public final class Placeholder {
          */
         public @NotNull Builder registerAll(@NotNull Placeholder placeholders) {
             this.map.putAll(placeholders.placeholders);
+            return this;
+        }
+
+        /**
+         * Registers every pair of a map as a static value, replacing values with the same key.
+         *
+         * @param values the keys and their values (null values become empty strings)
+         * @return this builder
+         */
+        public @NotNull Builder registerAll(@NotNull Map<String, String> values) {
+            values.forEach(this::register);
             return this;
         }
 
