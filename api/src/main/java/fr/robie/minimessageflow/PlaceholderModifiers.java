@@ -51,7 +51,8 @@ public final class PlaceholderModifiers {
     public interface Modifier {
         /**
          * @param value the value
-         * @param args  the arguments, after the modifier name's colon
+         * @param args  the arguments, after the modifier name's colon; read only: the same array is given again
+         *              on the next call
          * @return the new value, or null if the modifier does not apply (the token is kept)
          */
         @Nullable String apply(@NotNull String value, @NotNull String[] args);
@@ -108,7 +109,7 @@ public final class PlaceholderModifiers {
         register("2f", numeric(d -> String.format(Locale.US, "%.2f", d)));
         register("3f", numeric(d -> String.format(Locale.US, "%.3f", d)));
         register("comma", numeric(d -> d == Math.rint(d)
-                ? String.format(Locale.US, "%,d", (long) d)
+                ? grouped((long) d)
                 : String.format(Locale.US, "%,.2f", d)));
         register("add_one", numeric(d -> formatNumber(d + 1)));
         register("remove_one", numeric(d -> formatNumber(d - 1)));
@@ -224,8 +225,56 @@ public final class PlaceholderModifiers {
     }
 
     static @Nullable String apply(@NotNull String value, @NotNull String chain, @NotNull Function<String, Modifier> modifiers) {
+        Chain compiled = compile(chain, modifiers);
+        return compiled == null ? null : compiled.apply(value);
+    }
+
+    /**
+     * A chain of modifiers read once ({@code comma}, {@code default:0.upper}...), to apply to many values: the
+     * modifiers are the ones registered when it is compiled.
+     */
+    public static final class Chain {
+        private final Modifier[] modifiers;
+        private final String[][] arguments;
+
+        private Chain(@NotNull Modifier @NotNull [] modifiers, @NotNull String @NotNull [] @NotNull [] arguments) {
+            this.modifiers = modifiers;
+            this.arguments = arguments;
+        }
+
+        /**
+         * @return the new value, or null if a modifier fails
+         */
+        public @Nullable String apply(@NotNull String value) {
+            String current = value;
+            for (int i = 0; i < this.modifiers.length; i++) {
+                try {
+                    current = this.modifiers[i].apply(current, this.arguments[i]);
+                } catch (RuntimeException e) {
+                    return null;
+                }
+                if (current == null) {
+                    return null;
+                }
+            }
+            return current;
+        }
+    }
+
+    /**
+     * Reads a chain of modifiers once.
+     *
+     * @param chain the modifiers, separated by dots
+     * @return the chain, or null if a modifier is unknown
+     */
+    public static @Nullable Chain compile(@NotNull String chain) {
+        return compile(chain, PlaceholderModifiers::get);
+    }
+
+    static @Nullable Chain compile(@NotNull String chain, @NotNull Function<String, Modifier> modifiers) {
         List<String> segments = split(chain, '.');
-        String current = value;
+        List<Modifier> found = new ArrayList<>(segments.size());
+        List<String[]> arguments = new ArrayList<>(segments.size());
         int i = 0;
         while (i < segments.size()) {
             String segment = segments.get(i++);
@@ -238,17 +287,10 @@ public final class PlaceholderModifiers {
             if (modifier == null) {
                 return null;
             }
-            String[] args = colon < 0 ? NO_ARGS : split(segment.substring(colon + 1), ':').toArray(NO_ARGS);
-            try {
-                current = modifier.apply(current, args);
-            } catch (RuntimeException e) {
-                return null;
-            }
-            if (current == null) {
-                return null;
-            }
+            found.add(modifier);
+            arguments.add(colon < 0 ? NO_ARGS : split(segment.substring(colon + 1), ':').toArray(NO_ARGS));
         }
-        return current;
+        return new Chain(found.toArray(new Modifier[0]), arguments.toArray(new String[0][]));
     }
 
     /**
@@ -286,6 +328,26 @@ public final class PlaceholderModifiers {
         } catch (NumberFormatException e) {
             return null;
         }
+    }
+
+    /**
+     * A whole number with a comma between its thousands, as {@code String.format(Locale.US, "%,d", n)} writes it,
+     * without reading a format on each call.
+     */
+    static @NotNull String grouped(long n) {
+        String digits = Long.toString(n);
+        int start = n < 0 ? 1 : 0;
+        int count = digits.length() - start;
+        if (count <= 3) {
+            return digits;
+        }
+        StringBuilder out = new StringBuilder(digits.length() + (count - 1) / 3);
+        int first = start + (count - 1) % 3 + 1;
+        out.append(digits, 0, first);
+        for (int i = first; i < digits.length(); i += 3) {
+            out.append(',').append(digits, i, i + 3);
+        }
+        return out.toString();
     }
 
     private static @NotNull String formatNumber(double d) {

@@ -66,6 +66,13 @@ public final class ModifierSet {
         return PlaceholderModifiers.apply(value, chain, this::get);
     }
 
+    /**
+     * As {@link PlaceholderModifiers#compile}, with the modifiers of this set.
+     */
+    public @Nullable PlaceholderModifiers.Chain compile(@NotNull String chain) {
+        return PlaceholderModifiers.compile(chain, this::get);
+    }
+
     public static final class Builder {
         private final Map<String, Modifier> own = new HashMap<>();
 

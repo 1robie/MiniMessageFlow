@@ -43,6 +43,11 @@ final class CompiledTemplate implements Template {
      * first inline value {@code i} with the same key (itself when it is the first).
      */
     private final int[] inlineSources;
+    /**
+     * How each slot's key and each inline value's key is read, found once.
+     */
+    private final Engine.KeyPlan[] slotPlans;
+    private final Engine.KeyPlan[] inlinePlans;
     private final Engine.Form base;
     /**
      * The message with values in a click or insert argument, compiled once (stage 3), or null.
@@ -63,15 +68,19 @@ final class CompiledTemplate implements Template {
         this.pieces = pieces;
         this.inlineKeys = inlineKeys;
         this.slotSources = new int[slots.size()];
+        this.slotPlans = new Engine.KeyPlan[slots.size()];
         boolean repeated = false;
         for (int slot = 0; slot < this.slotSources.length; slot++) {
             this.slotSources[slot] = firstSlot(slots, slots.key(slot));
+            this.slotPlans[slot] = engine.plan(slots.key(slot));
             repeated |= this.slotSources[slot] != slot;
         }
         this.repeatedSlots = repeated;
         this.inlineSources = new int[inlineKeys.size()];
+        this.inlinePlans = new Engine.KeyPlan[inlineKeys.size()];
         for (int i = 0; i < this.inlineSources.length; i++) {
             String key = inlineKeys.get(i);
+            this.inlinePlans[i] = engine.plan(key);
             int slot = firstSlot(slots, key);
             this.inlineSources[i] = slot >= 0 ? slot : -1 - inlineKeys.indexOf(key);
         }
@@ -138,7 +147,7 @@ final class CompiledTemplate implements Template {
         for (int slot = 0; slot < size; slot++) {
             String key = this.slots.key(slot);
             int source = this.slotSources[slot];
-            Component value = given != null && source != slot ? given[source] : this.engine.value(key, placeholders, viewer);
+            Component value = given != null && source != slot ? given[source] : this.engine.value(this.slotPlans[slot], placeholders, viewer);
             if (given != null) {
                 given[slot] = value;
             }
@@ -167,7 +176,7 @@ final class CompiledTemplate implements Template {
                 if (source < 0 && -1 - source < i) {
                     inline[i] = inline[-1 - source];
                 } else {
-                    inline[i] = Engine.inlineText(key, source >= 0 ? given[source] : this.engine.value(key, placeholders, viewer));
+                    inline[i] = Engine.inlineText(key, source >= 0 ? given[source] : this.engine.value(this.inlinePlans[i], placeholders, viewer));
                 }
             }
             if (this.inline != null && unclaimed.isEmpty()) {

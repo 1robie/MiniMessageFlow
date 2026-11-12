@@ -2,6 +2,7 @@ package fr.robie.minimessageflow.core;
 
 import fr.robie.minimessageflow.Placeholder;
 import fr.robie.minimessageflow.ModifierSet;
+import fr.robie.minimessageflow.PlaceholderModifiers;
 import fr.robie.minimessageflow.PlaceholderValue;
 import fr.robie.minimessageflow.Resolver;
 import fr.robie.minimessageflow.Template;
@@ -371,19 +372,24 @@ public final class Engine {
      * The value of a placeholder: the call's value, the call's value with modifiers ({@code %price.comma%}), a
      * resolver's component or text, a resolver's value with modifiers; or null.
      */
-    @Nullable Component value(@NotNull String key, @NotNull Placeholder placeholders, @Nullable Pointered viewer) {
+    @Nullable Component value(@NotNull KeyPlan plan, @NotNull Placeholder placeholders, @Nullable Pointered viewer) {
+        String key = plan.key;
         PlaceholderValue value = placeholders.get(key);
         if (value != null) {
             return this.toComponent(key, value, viewer);
         }
-        boolean modifiers = key.indexOf('.') > 0;
-        if (modifiers) {
-            String text = this.modifiers.resolve(key, k -> {
-                PlaceholderValue base = placeholders.get(k);
-                return base == null ? null : PLAIN.serialize(this.toComponent(k, base, viewer));
-            });
-            if (text != null) {
-                return Component.text(text);
+        String[] bases = plan.bases;
+        boolean modifiers = bases.length > 0;
+        for (int i = 0; i < bases.length; i++) {
+            PlaceholderValue base = placeholders.get(bases[i]);
+            if (base != null) {
+                // The first key with a value is the one read, whether or not its modifiers apply.
+                PlaceholderModifiers.Chain chain = plan.chains[i];
+                String text = chain == null ? null : chain.apply(this.plainText(bases[i], base, viewer));
+                if (text != null) {
+                    return Component.text(text);
+                }
+                break;
             }
         }
         for (Resolver resolver : this.resolvers) {
@@ -401,29 +407,75 @@ public final class Engine {
         }
         if (modifiers) {
             for (Resolver resolver : this.resolvers) {
-                // A modifier works on text: a component gives its plain text, and the result is plain text too (it
-                // was never formatted text, so it is not parsed).
-                boolean[] plain = {false};
-                String text = this.modifiers.resolve(key, k -> {
-                    if (k.equals(key)) {
-                        return null;
-                    }
-                    Component component = this.resolveComponent(resolver, k, viewer);
+                for (int i = 0; i < bases.length; i++) {
+                    // A modifier works on text: a component gives its plain text, and the result is plain text too
+                    // (it was never formatted text, so it is not parsed).
+                    Component component = this.resolveComponent(resolver, bases[i], viewer);
                     if (component == FAILED) {
-                        return null;
+                        continue;
                     }
-                    if (component != null) {
-                        plain[0] = true;
-                        return PLAIN.serialize(component);
+                    String text = component != null ? PLAIN.serialize(component) : this.resolve(resolver, bases[i], viewer);
+                    if (text == null) {
+                        continue;
                     }
-                    return this.resolve(resolver, k, viewer);
-                });
-                if (text != null) {
-                    return plain[0] ? Component.text(text) : this.parseResolverText(text);
+                    PlaceholderModifiers.Chain chain = plan.chains[i];
+                    String modified = chain == null ? null : chain.apply(text);
+                    if (modified != null) {
+                        return component != null ? Component.text(modified) : this.parseResolverText(modified);
+                    }
+                    break;
                 }
             }
         }
         return null;
+    }
+
+    /**
+     * How a key is read, found once when its message is compiled: the key itself, then the key before each of its
+     * dots (longest first) with the modifiers after it. The modifiers are the ones known at that time.
+     */
+    static final class KeyPlan {
+        private static final String[] NO_BASES = new String[0];
+        private static final PlaceholderModifiers.Chain[] NO_CHAINS = new PlaceholderModifiers.Chain[0];
+
+        final String key;
+        final String[] bases;
+        /**
+         * For each base, its modifiers, or null when one of them is unknown (the placeholder stays as written).
+         */
+        final @Nullable PlaceholderModifiers.Chain[] chains;
+
+        private KeyPlan(@NotNull String key, @NotNull String @NotNull [] bases, @Nullable PlaceholderModifiers.Chain @NotNull [] chains) {
+            this.key = key;
+            this.bases = bases;
+            this.chains = chains;
+        }
+    }
+
+    @NotNull KeyPlan plan(@NotNull String key) {
+        List<String> bases = new ArrayList<>(2);
+        List<PlaceholderModifiers.Chain> chains = new ArrayList<>(2);
+        for (int dot = key.lastIndexOf('.'); dot > 0; dot = key.lastIndexOf('.', dot - 1)) {
+            bases.add(key.substring(0, dot));
+            chains.add(this.modifiers.compile(key.substring(dot + 1)));
+        }
+        return bases.isEmpty() ? new KeyPlan(key, KeyPlan.NO_BASES, KeyPlan.NO_CHAINS)
+                : new KeyPlan(key, bases.toArray(KeyPlan.NO_BASES), chains.toArray(KeyPlan.NO_CHAINS));
+    }
+
+    /**
+     * The plain text of a value, for a modifier: the text of a text value as it is, without a component in between.
+     */
+    private @NotNull String plainText(@NotNull String key, @NotNull PlaceholderValue value, @Nullable Pointered viewer) {
+        if (value.isComponent()) {
+            return PLAIN.serialize(this.toComponent(key, value, viewer));
+        }
+        try {
+            return value.evaluate(viewer);
+        } catch (Exception e) {
+            this.report(key, e);
+            return "%" + key + "%";
+        }
     }
 
     /**

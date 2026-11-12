@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Modifiers are read once, when a message is compiled: a render with `%price.comma%` no longer splits and looks
+  the chain up each time (the shop line renders about three times faster and allocates less than half).
+  A shared modifier registered with `PlaceholderModifiers.register` after a message is compiled is not seen by
+  that message: register before compiling, as the Javadoc asks. A `Modifier` must not change its `args` array,
+  which is now the same on every call. `PlaceholderModifiers.compile(chain)` and `ModifierSet.compile(chain)`
+  give a `Chain` to apply to many values. `comma` on a whole number no longer goes through `String.format`.
 - Legacy codes are no longer read inside a `<click>` or `<insert>` tag: a URL keeps its `&b=2` and `#abcdef`, a
   copied `#ff0000` stays as written. A hover's text is still formatted.
 - A `<` that opens no tag (`I <3 you`, `5 < 6`) no longer changes the placeholders after it: their values keep every

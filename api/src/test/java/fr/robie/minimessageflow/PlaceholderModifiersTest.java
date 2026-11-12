@@ -87,4 +87,38 @@ class PlaceholderModifiersTest {
         assertTrue(p.isViewerDependent("%health.int%"));
         assertFalse(p.isViewerDependent("%other.int%"));
     }
+
+    @Test
+    @DisplayName("Whole numbers are grouped as String.format groups them")
+    void grouped() {
+        long[] edges = {0, 1, -1, 12, 123, 999, 1000, -1000, 1234, 12345, 123456, 1234567, -1234567,
+                999_999, 1_000_000, Long.MAX_VALUE, Long.MIN_VALUE};
+        for (long n : edges) {
+            assertEquals(String.format(java.util.Locale.US, "%,d", n), PlaceholderModifiers.grouped(n));
+        }
+        java.util.Random random = new java.util.Random(42);
+        for (int i = 0; i < 5000; i++) {
+            long n = random.nextLong() >> random.nextInt(64);
+            assertEquals(String.format(java.util.Locale.US, "%,d", n), PlaceholderModifiers.grouped(n));
+        }
+        assertEquals("1,250", parse("%price.comma%", Placeholder.of("price", "1250")));
+        assertEquals("1,250.50", parse("%price.comma%", Placeholder.of("price", "1250.5")));
+    }
+
+    @Test
+    @DisplayName("A chain read once gives what reading it each time gives")
+    void compiledChain() {
+        String[] chains = {"upper", "comma", "default:0.upper", "add:1.5", "max:3.upper", "default:Mr.Length", "plural:a:b"};
+        String[] values = {"steve", "1250", "", "2", "1"};
+        for (String chain : chains) {
+            PlaceholderModifiers.Chain compiled = PlaceholderModifiers.compile(chain);
+            assertNotNull(compiled, chain);
+            for (String value : values) {
+                assertEquals(PlaceholderModifiers.apply(value, chain), compiled.apply(value), chain + " on " + value);
+                assertEquals(compiled.apply(value), compiled.apply(value), "applied twice: " + chain);
+            }
+        }
+        assertNull(PlaceholderModifiers.compile("nosuchmodifier"));
+        assertNull(PlaceholderModifiers.compile("upper.nosuchmodifier:x"));
+    }
 }
