@@ -22,6 +22,14 @@
 - Tags are found exactly as MiniMessage's tokenizer finds them, checked against it on every Adventure of the matrix
   (`TagRangesTest`). Each bridge has its own tests. JitPack runs the tests before publishing.
 
+- Values computed at each render or for the viewer can be components: `Placeholder.ofComponent(key, supplier)`,
+  `Placeholder.ofViewerComponent(key, function)`, `registerComponent`, `registerViewerComponent` on the builder
+  (`PlaceholderValue.DynamicComponentValue`, `ViewerComponentValue`; `PlaceholderValue.asComponent`, `isComponent`,
+  `needsViewer`).
+- `Resolver.resolveComponent(key, viewer)`: a resolver can give a component, asked before its text.
+  `Resolver.of(Placeholder)` gives component values as they are instead of writing and parsing them again; with a
+  modifier (`%key.upper%`) such a value is its plain text, as for a value of the call.
+
 ## 1.0.0
 
 First release. A fast text formatter for Adventure 4.17 (Paper 1.20.6) to 5.x (Minecraft 26), with no dependency

@@ -516,6 +516,41 @@ public abstract class FormattingContract {
     }
 
     @Test
+    @DisplayName("A component computed at render or for the viewer is inserted like a fixed one, as a call's value or a global")
+    void computedComponents() {
+        Component styled = Component.text("Sword", NamedTextColor.GOLD).decorate(TextDecoration.BOLD)
+                .append(Component.text(" +1", NamedTextColor.GREEN));
+        Pointered steve = viewer("Steve");
+        List<Placeholder> sets = List.of(
+                Placeholder.of("v", styled),
+                Placeholder.ofComponent("v", () -> styled),
+                Placeholder.ofViewerComponent("v", viewer -> Component.text(name(viewer), NamedTextColor.RED)),
+                Placeholder.ofComponent("v", () -> null),
+                Placeholder.builder().registerComponent("v", () -> styled).registerViewerComponent("w", viewer -> styled).build());
+        List<String> messages = List.of("<blue>a %v% b", "<v> and <w>", "<click:run_command:'/give %v%'>[%v%]</click>",
+                "<hover:show_text:'<gray>%v%'>h</hover>", "<gradient:red:blue>x %v% y</gradient>", "%v.upper% <v:lower> %v.length%",
+                "<insert:'%v%'><b>%v%</b></insert> %missing%");
+        TestFormatter local = this.formatter();
+        TestFormatter localReference = new ReferenceFormatter(Placeholder.empty());
+        for (Placeholder values : sets) {
+            TestFormatter global = this.formatter(values);
+            TestFormatter globalReference = new ReferenceFormatter(values);
+            for (String message : messages) {
+                for (Pointered viewer : new Pointered[]{steve, null}) {
+                    assertEquals(ComponentRuns.of(localReference.format(message, values, viewer)),
+                            ComponentRuns.of(local.format(message, values, viewer)), "call value: " + message);
+                    assertEquals(ComponentRuns.of(globalReference.format(message, Placeholder.empty(), viewer)),
+                            ComponentRuns.of(global.format(message, Placeholder.empty(), viewer)), "global: " + message);
+                }
+            }
+        }
+        assertEquals("Steve", PLAIN.serialize(local.format("%v%", sets.get(2), steve)));
+        assertEquals("", PLAIN.serialize(local.format("%v%", sets.get(2), null)), "no viewer: empty");
+        assertTrue(flatten(local.format("%v%", sets.get(1), null)).stream().anyMatch(c -> NamedTextColor.GOLD.equals(c.color())),
+                "the component keeps its style");
+    }
+
+    @Test
     @DisplayName("Click and insert arguments with values that change read as before")
     void eventArgumentsWithValues() {
         TestFormatter reference = new ReferenceFormatter(Placeholder.of("server", "&aLobby"));

@@ -2,6 +2,7 @@ package fr.robie.minimessageflow;
 
 import fr.robie.minimessageflow.internal.PlaceholderScanner;
 import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.ComponentLike;
 import net.kyori.adventure.pointer.Pointered;
 import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
@@ -22,6 +23,8 @@ import java.util.function.Supplier;
  *   <li><strong>Static:</strong> Fixed string values (e.g., "John")</li>
  *   <li><strong>Dynamic:</strong> Supplier-based values evaluated at resolution time (e.g., {@code () -> "value"})</li>
  *   <li><strong>Viewer-specific:</strong> Function-based values evaluated per viewer (e.g., {@code viewer -> viewer.get(Identity.NAME).orElse("")})</li>
+ *   <li><strong>Components:</strong> each of these as a component, inserted with its own style: {@code of(key, component)},
+ *   {@code ofComponent(key, () -> item.displayName())}, {@code ofViewerComponent(key, viewer -> ...)}</li>
  * </ul>
  *
  * <p>Null values are converted to empty strings for consistency.
@@ -61,7 +64,7 @@ public final class Placeholder {
      */
     private Placeholder(@NotNull Map<String, PlaceholderValue> placeholders) {
         this.placeholders = placeholders;
-        this.hasViewerValues = placeholders.values().stream().anyMatch(PlaceholderValue.ViewerValue.class::isInstance);
+        this.hasViewerValues = placeholders.values().stream().anyMatch(PlaceholderValue::needsViewer);
     }
 
     /**
@@ -142,7 +145,7 @@ public final class Placeholder {
         return this.hasViewerValues && text != null
                 && PlaceholderScanner.anyKey(text, key -> {
             String base = PlaceholderModifiers.baseKey(key, this.placeholders::containsKey);
-            return base != null && this.placeholders.get(base) instanceof PlaceholderValue.ViewerValue;
+            return base != null && this.placeholders.get(base).needsViewer();
         });
     }
 
@@ -199,6 +202,29 @@ public final class Placeholder {
      */
     public static @NotNull Placeholder of(@NotNull String key, @NotNull Component component) {
         return new Placeholder(Map.of(key, PlaceholderValue.ofComponent(component)));
+    }
+
+    /**
+     * Creates a placeholder whose value is a component computed at each render, inserted with its own style.
+     * Not an overload of {@code of}: a lambda could not tell a supplier of text from a supplier of components.
+     *
+     * @param key      the placeholder key
+     * @param supplier gives the component (a null result is an empty component)
+     * @return a new Placeholder instance
+     */
+    public static @NotNull Placeholder ofComponent(@NotNull String key, @NotNull Supplier<? extends ComponentLike> supplier) {
+        return new Placeholder(Map.of(key, PlaceholderValue.ofDynamicComponent(supplier)));
+    }
+
+    /**
+     * Creates a placeholder whose value is a component computed for the viewer, inserted with its own style.
+     *
+     * @param key      the placeholder key
+     * @param function gives the component from the viewer (a null result is an empty component)
+     * @return a new Placeholder instance
+     */
+    public static @NotNull Placeholder ofViewerComponent(@NotNull String key, @NotNull Function<Pointered, ? extends ComponentLike> function) {
+        return new Placeholder(Map.of(key, PlaceholderValue.ofViewerComponent(function)));
     }
 
     /**
@@ -295,6 +321,30 @@ public final class Placeholder {
          */
         public @NotNull Builder register(@NotNull String key, @NotNull Component component) {
             this.map.put(key, PlaceholderValue.ofComponent(component));
+            return this;
+        }
+
+        /**
+         * Registers a component computed at each render, inserted with its own style.
+         *
+         * @param key      the placeholder key
+         * @param supplier gives the component (a null result is an empty component)
+         * @return this builder
+         */
+        public @NotNull Builder registerComponent(@NotNull String key, @NotNull Supplier<? extends ComponentLike> supplier) {
+            this.map.put(key, PlaceholderValue.ofDynamicComponent(supplier));
+            return this;
+        }
+
+        /**
+         * Registers a component computed for the viewer, inserted with its own style.
+         *
+         * @param key      the placeholder key
+         * @param function gives the component from the viewer (a null result is an empty component)
+         * @return this builder
+         */
+        public @NotNull Builder registerViewerComponent(@NotNull String key, @NotNull Function<Pointered, ? extends ComponentLike> function) {
+            this.map.put(key, PlaceholderValue.ofViewerComponent(function));
             return this;
         }
 

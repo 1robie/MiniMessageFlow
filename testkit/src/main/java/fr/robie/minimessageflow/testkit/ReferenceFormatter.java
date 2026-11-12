@@ -127,7 +127,8 @@ public final class ReferenceFormatter implements TestFormatter {
     }
 
     /**
-     * The value of a key: the call's value (also with modifiers), else the global's formatted text, parsed on its own.
+     * The value of a key: the call's value (also with modifiers), else the global's: a component as it is, text as
+     * formatted text parsed on its own.
      */
     private @Nullable Component value(@NotNull String key, @NotNull Placeholder placeholders, @Nullable Pointered viewer) {
         PlaceholderValue value = placeholders.get(key);
@@ -143,21 +144,40 @@ public final class ReferenceFormatter implements TestFormatter {
                 return Component.text(text);
             }
         }
+        // A global that is a component is used as it is; one that is text is formatted text, parsed on its own.
+        PlaceholderValue direct = this.globals.get(key);
+        if (direct != null) {
+            try {
+                return direct.isComponent() ? direct.asComponent(viewer) : parseGlobal(direct.evaluate(viewer));
+            } catch (Exception e) {
+                // No value from this key: its modifiers are tried.
+            }
+        }
+        // With modifiers: a component gives its plain text and the result is plain text, as for a call's value.
+        boolean[] plain = {false};
         String global = PlaceholderModifiers.resolve(key, k -> {
-            PlaceholderValue base = this.globals.get(k);
+            PlaceholderValue base = k.equals(key) ? null : this.globals.get(k);
             if (base == null) {
                 return null;
             }
-            if (base instanceof PlaceholderValue.ComponentValue(Component component)) {
-                return MiniMessage.miniMessage().serialize(component);
-            }
             try {
+                if (base.isComponent()) {
+                    plain[0] = true;
+                    return PLAIN.serialize(base.asComponent(viewer));
+                }
                 return base.evaluate(viewer);
             } catch (Exception e) {
                 return null;
             }
         });
-        return global == null ? null : MINI_MESSAGE.deserialize(LegacyColors.toMiniMessage(stripMarkers(global)));
+        if (global == null) {
+            return null;
+        }
+        return plain[0] ? Component.text(global) : parseGlobal(global);
+    }
+
+    private static @NotNull Component parseGlobal(@NotNull String text) {
+        return MINI_MESSAGE.deserialize(LegacyColors.toMiniMessage(stripMarkers(text)));
     }
 
     /**
@@ -176,11 +196,8 @@ public final class ReferenceFormatter implements TestFormatter {
     }
 
     private static @NotNull Component toComponent(@NotNull String key, @NotNull PlaceholderValue value, @Nullable Pointered viewer) {
-        if (value instanceof PlaceholderValue.ComponentValue(Component component)) {
-            return component;
-        }
         try {
-            return Component.text(value.evaluate(viewer));
+            return value.asComponent(viewer);
         } catch (Exception e) {
             return Component.text("%" + key + "%");
         }

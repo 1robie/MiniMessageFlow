@@ -63,6 +63,10 @@ public final class Engine {
     static final char PROBE = '';
     private static final int MAX_VARIANTS = 64;
     private static final int[] NO_TAGS = new int[0];
+    /**
+     * Compared by identity: a resolver's component that threw.
+     */
+    private static final Component FAILED = Component.text("failed");
     private static final PlainTextComponentSerializer PLAIN = PlainTextComponentSerializer.plainText();
 
     private final boolean legacyCodes;
@@ -365,7 +369,7 @@ public final class Engine {
 
     /**
      * The value of a placeholder: the call's value, the call's value with modifiers ({@code %price.comma%}), a
-     * resolver's text, a resolver's text with modifiers; or null.
+     * resolver's component or text, a resolver's value with modifiers; or null.
      */
     @Nullable Component value(@NotNull String key, @NotNull Placeholder placeholders, @Nullable Pointered viewer) {
         PlaceholderValue value = placeholders.get(key);
@@ -383,6 +387,13 @@ public final class Engine {
             }
         }
         for (Resolver resolver : this.resolvers) {
+            Component component = this.resolveComponent(resolver, key, viewer);
+            if (component == FAILED) {
+                continue;
+            }
+            if (component != null) {
+                return component;
+            }
             String text = this.resolve(resolver, key, viewer);
             if (text != null) {
                 return this.parseResolverText(text);
@@ -390,9 +401,25 @@ public final class Engine {
         }
         if (modifiers) {
             for (Resolver resolver : this.resolvers) {
-                String text = this.modifiers.resolve(key, k -> k.equals(key) ? null : this.resolve(resolver, k, viewer));
+                // A modifier works on text: a component gives its plain text, and the result is plain text too (it
+                // was never formatted text, so it is not parsed).
+                boolean[] plain = {false};
+                String text = this.modifiers.resolve(key, k -> {
+                    if (k.equals(key)) {
+                        return null;
+                    }
+                    Component component = this.resolveComponent(resolver, k, viewer);
+                    if (component == FAILED) {
+                        return null;
+                    }
+                    if (component != null) {
+                        plain[0] = true;
+                        return PLAIN.serialize(component);
+                    }
+                    return this.resolve(resolver, k, viewer);
+                });
                 if (text != null) {
-                    return this.parseResolverText(text);
+                    return plain[0] ? Component.text(text) : this.parseResolverText(text);
                 }
             }
         }
@@ -418,6 +445,19 @@ public final class Engine {
         }
     }
 
+    /**
+     * @return the component, null when the resolver has none for the key, or {@link #FAILED} when it threw: the
+     * error handler was told, and the resolver's text is not asked for this key (it would fail, and be told, again)
+     */
+    private @Nullable Component resolveComponent(@NotNull Resolver resolver, @NotNull String key, @Nullable Pointered viewer) {
+        try {
+            return resolver.resolveComponent(key, viewer);
+        } catch (RuntimeException e) {
+            this.report(key, e);
+            return FAILED;
+        }
+    }
+
     private void report(@NotNull String key, @NotNull Throwable error) {
         try {
             this.errors.accept(key, error);
@@ -434,11 +474,8 @@ public final class Engine {
      * A value that throws shows as the placeholder was written; the error handler is told.
      */
     private @NotNull Component toComponent(@NotNull String key, @NotNull PlaceholderValue value, @Nullable Pointered viewer) {
-        if (value instanceof PlaceholderValue.ComponentValue(Component component)) {
-            return component;
-        }
         try {
-            return Component.text(value.evaluate(viewer));
+            return value.asComponent(viewer);
         } catch (Exception e) {
             this.report(key, e);
             return Component.text("%" + key + "%");

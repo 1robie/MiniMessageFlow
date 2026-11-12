@@ -65,10 +65,14 @@ Component once = text.format("<red>Hello %name%", Placeholder.of("name", "Steve"
 - **Placeholders**: `%name%` and `<name>` are the same placeholder. Modifiers: `%price.comma%`, `<price:comma>`,
   `<n:plural:item:items>`, `%name.upper%`... (yours: `modifier(...)` on the builder, or
   `PlaceholderModifiers.register` for every instance, before messages are compiled). A value of the call is plain
-  text, never read as tags or colour codes (`Placeholder.of("x", component)` for styled values). A value can also
-  depend on the viewer (`Placeholder.of("hp", viewer -> ...)`). Without a value, a placeholder stays as written.
+  text, never read as tags or colour codes. A value can be computed at each render (`Placeholder.of("time", () -> ...)`)
+  or for the viewer (`Placeholder.of("hp", viewer -> ...)`). Each of these can be a component instead, inserted with
+  its own style: `Placeholder.of("x", component)`, `Placeholder.ofComponent("item", () -> item.displayName())`,
+  `Placeholder.ofViewerComponent("rank", viewer -> ...)`. In a tag argument or with a modifier, a component gives its
+  plain text. Without a value, a placeholder stays as written.
 - **Resolvers** give the values a call doesn't: global placeholders, PlaceholderAPI... Their text is formatted, and
-  read on its own: its colours and unclosed tags end with it.
+  read on its own: its colours and unclosed tags end with it. A resolver can also give a component
+  (`resolveComponent`, asked first), inserted as it is and never parsed.
 - **Builder options**: `legacyCodes(boolean)`, `tags(TagResolver)` (your own tags, which can replace standard ones),
   `templateCacheSize`, `valueCacheSize`, `cacheFactory(CacheFactory)` (your caches, for example Guava or Caffeine with
   an expiry; the default is a bounded map without dependency), `nativeCompiler(boolean)`,

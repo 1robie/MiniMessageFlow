@@ -11,6 +11,7 @@ import net.kyori.adventure.text.minimessage.MiniMessage;
 import net.kyori.adventure.text.minimessage.tag.Tag;
 import net.kyori.adventure.text.minimessage.tag.resolver.TagResolver;
 import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
+import org.jspecify.annotations.NonNull;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -331,12 +332,12 @@ class EngineTest {
                         BoundedCache<K, V> inner = new BoundedCache<>(maximumSize);
                         return new fr.robie.minimessageflow.cache.Cache<>() {
                             @Override
-                            public V getIfPresent(K key) {
+                            public V getIfPresent(@NonNull K key) {
                                 return inner.getIfPresent(key);
                             }
 
                             @Override
-                            public V get(K key, java.util.function.Function<? super K, ? extends V> loader) {
+                            public @NonNull V get(@NonNull K key, java.util.function.@NonNull Function<? super K, ? extends V> loader) {
                                 return inner.get(key, k -> {
                                     loads.incrementAndGet();
                                     return loader.apply(k);
@@ -438,5 +439,53 @@ class EngineTest {
         assertEquals("Welcome Steve", templates.get("welcome").renderPlain(Placeholder.of("name", "Steve")));
         assertTrue(templates.get("motd").isStatic());
         assertThrows(UnsupportedOperationException.class, () -> templates.put("x", templates.get("motd")));
+    }
+
+    @Test
+    @DisplayName("A resolver can give a component: inserted as it is, never parsed; plain text under a modifier")
+    void resolverComponents() {
+        AtomicInteger textCalls = new AtomicInteger();
+        MiniMessageFlow flow = MiniMessageFlow.builder().resolver(new Resolver() {
+            @Override
+            public String resolve(String key, net.kyori.adventure.pointer.Pointered viewer) {
+                textCalls.incrementAndGet();
+                return key.equals("text") ? "<green>formatted" : null;
+            }
+
+            @Override
+            public Component resolveComponent(String key, net.kyori.adventure.pointer.Pointered viewer) {
+                return key.equals("item") ? Component.text("<red>Sword", NamedTextColor.GOLD) : null;
+            }
+        }).build();
+        Component rendered = flow.format("%item% %text% %item.upper%");
+        assertEquals("<red>Sword formatted <RED>SWORD", PLAIN.serialize(rendered), "a component's text is never read as tags");
+        assertEquals(ComponentRuns.of(MiniMessage.miniMessage().deserialize("<gold>\\<red>Sword</gold> <green>formatted</green> \\<RED>SWORD")),
+                ComponentRuns.of(rendered));
+        assertTrue(MiniMessage.miniMessage().serialize(flow.format("<click:run_command:'/give %item%'>x")).contains("/give redSword"),
+                "in a tag argument: its plain text, without the characters that could end the tag");
+    }
+
+    @Test
+    @DisplayName("A component value that throws: the error handler is told, the placeholder stays as written")
+    void componentValueErrors() {
+        java.util.List<String> keys = new java.util.concurrent.CopyOnWriteArrayList<>();
+        MiniMessageFlow flow = MiniMessageFlow.builder()
+                .resolver(Resolver.of(Placeholder.ofComponent("global", () -> {
+                    throw new IllegalStateException("global down");
+                })))
+                .errorHandler((key, error) -> keys.add(key + ": " + error.getMessage()))
+                .build();
+        AtomicInteger calls = new AtomicInteger();
+        Placeholder values = Placeholder.builder()
+                .registerComponent("broken", () -> {
+                    throw new IllegalStateException("local down");
+                })
+                .registerComponent("n", () -> Component.text(calls.incrementAndGet()))
+                .build();
+        assertEquals("%broken% %global% 1 1", flow.formatPlain("%broken% %global% %n% <n>", values));
+        assertEquals(java.util.List.of("broken: local down", "global: global down"), keys);
+        assertEquals(1, calls.get(), "evaluated once per render");
+        assertTrue(Placeholder.ofViewerComponent("v", viewer -> Component.empty()).isViewerDependent("%v%"));
+        assertFalse(Placeholder.ofComponent("v", Component::empty).isViewerDependent("%v%"));
     }
 }
