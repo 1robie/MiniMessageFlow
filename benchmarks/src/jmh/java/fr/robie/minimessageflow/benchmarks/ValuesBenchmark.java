@@ -3,6 +3,8 @@ package fr.robie.minimessageflow.benchmarks;
 import fr.robie.minimessageflow.MiniMessageFlow;
 import fr.robie.minimessageflow.Placeholder;
 import fr.robie.minimessageflow.Template;
+import fr.robie.minimessageflow.ValueKey;
+import fr.robie.minimessageflow.Values;
 import net.kyori.adventure.text.Component;
 import org.openjdk.jmh.annotations.Benchmark;
 import org.openjdk.jmh.annotations.BenchmarkMode;
@@ -84,5 +86,26 @@ public class ValuesBenchmark {
     @Benchmark
     public Component threeBuildAndRender() {
         return this.three.render(threeValues());
+    }
+
+    // The same three values through Values: keys declared once, one array set again for each send.
+
+    private final MiniMessageFlow.Builder keyed = MiniMessageFlow.builder();
+    private final ValueKey item = this.keyed.key("item");
+    private final ValueKey price = this.keyed.key("price");
+    private final ValueKey n = this.keyed.key("n");
+    private final MiniMessageFlow keyedFlow = this.keyed.build();
+    private final Template keyedThree = this.keyedFlow.compile("<green>%item%</green> for <gold>%price%</gold> <click:run_command:'/buy 42'>[Buy %n%]");
+    private final Values values = this.keyedFlow.newValues().set(this.item, "Sword").set(this.price, "1,250").set(this.n, "1");
+
+    @Benchmark
+    public Component threeValuesRender() {
+        return this.keyedThree.render(this.values);
+    }
+
+    @Benchmark
+    public Component threeValuesSetAndRender() {
+        this.values.set(this.item, "Sword").set(this.price, "1,250").set(this.n, "1");
+        return this.keyedThree.render(this.values);
     }
 }

@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- `Values`: the values of a render kept in an array and set again for each send, instead of a `Placeholder` built
+  each time. Declare the names once (`ValueKey PLAYER = builder.key("player")`), make one `Values` per thread
+  (`text.newValues()`), then `values.set(PLAYER, name)` and `template.render(values, viewer)`. It works with every
+  template of the instance; a key that is not set goes to the resolvers, as a key missing from a `Placeholder`.
+  Not thread-safe. Three values and a click, set and rendered: 115 ns and 680 B, against 207 ns and 1,400 B with a
+  `Placeholder` built for the send.
+- Building a `Placeholder` costs about a third of what it did (three values with the builder: 64 ns and 728 B to
+  20 ns and 328 B). `build()` no longer copies the builder's map (the builder copies it if it is used again), and
+  `Placeholder.of(k1, v1, k2, v2)` no longer goes through a `HashMap`.
 - A value in a hover's text (`<hover:show_text:'Balance: %coins%'>`) or in a translation argument
   (`<lang:key:'%player%'>`) is placed at render: such a message is `NATIVE` instead of `PARSED`, and a value never
   seen before no longer costs a MiniMessage parse (a hover with a changing value: 22.7 µs and 67 KB to 0.22 µs and

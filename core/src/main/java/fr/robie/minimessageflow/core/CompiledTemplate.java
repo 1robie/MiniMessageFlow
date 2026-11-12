@@ -2,6 +2,7 @@ package fr.robie.minimessageflow.core;
 
 import fr.robie.minimessageflow.Placeholder;
 import fr.robie.minimessageflow.Template;
+import fr.robie.minimessageflow.Values;
 import net.kyori.adventure.pointer.Pointered;
 import net.kyori.adventure.text.Component;
 import org.jetbrains.annotations.ApiStatus;
@@ -139,6 +140,21 @@ final class CompiledTemplate implements Template {
         if (this.isStatic) {
             return ((Engine.Form.Static) this.base).component();
         }
+        return this.render(placeholders, null, viewer);
+    }
+
+    @Override
+    public @NotNull Component render(@NotNull Values values, @Nullable Pointered viewer) {
+        if (values.keys() != this.engine.keys()) {
+            throw new IllegalArgumentException("these values were made by another MiniMessageFlow");
+        }
+        if (this.isStatic) {
+            return ((Engine.Form.Static) this.base).component();
+        }
+        return this.render(Placeholder.empty(), values, viewer);
+    }
+
+    private @NotNull Component render(@NotNull Placeholder placeholders, @Nullable Values fast, @Nullable Pointered viewer) {
         int size = this.slots.size();
         Component[] values = new Component[size];
         // The values as given (null when there is none), for the other places the same key is written.
@@ -147,7 +163,7 @@ final class CompiledTemplate implements Template {
         for (int slot = 0; slot < size; slot++) {
             String key = this.slots.key(slot);
             int source = this.slotSources[slot];
-            Component value = given != null && source != slot ? given[source] : this.engine.value(this.slotPlans[slot], placeholders, viewer);
+            Component value = given != null && source != slot ? given[source] : this.engine.value(this.slotPlans[slot], placeholders, fast, viewer);
             if (given != null) {
                 given[slot] = value;
             }
@@ -176,7 +192,7 @@ final class CompiledTemplate implements Template {
                 if (source < 0 && -1 - source < i) {
                     inline[i] = inline[-1 - source];
                 } else {
-                    inline[i] = Engine.inlineText(key, source >= 0 ? given[source] : this.engine.value(this.inlinePlans[i], placeholders, viewer));
+                    inline[i] = Engine.inlineText(key, source >= 0 ? given[source] : this.engine.value(this.inlinePlans[i], placeholders, fast, viewer));
                 }
             }
             if (this.inline != null && unclaimed.isEmpty()) {

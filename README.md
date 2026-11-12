@@ -70,6 +70,10 @@ Component once = text.format("<red>Hello %name%", Placeholder.of("name", "Steve"
   its own style: `Placeholder.of("x", component)`, `Placeholder.ofComponent("item", () -> item.displayName())`,
   `Placeholder.ofViewerComponent("rank", viewer -> ...)`. In a tag argument or with a modifier, a component gives its
   plain text. Without a value, a placeholder stays as written.
+- **Values for many sends**: where a message goes to many players, declare its names once and set the values in
+  a `Values` kept between sends, instead of building a `Placeholder` each time:
+  `ValueKey PLAYER = builder.key("player")` on the builder, `Values values = text.newValues()` (one per thread, not
+  thread-safe), then `values.set(PLAYER, name)` and `template.render(values, player)`.
 - **Resolvers** give the values a call doesn't: global placeholders, PlaceholderAPI... Their text is formatted, and
   read on its own: its colours and unclosed tags end with it. A resolver can also give a component
   (`resolveComponent`, asked first), inserted as it is and never parsed.

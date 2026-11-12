@@ -6,6 +6,8 @@ import fr.robie.minimessageflow.PlaceholderModifiers;
 import fr.robie.minimessageflow.PlaceholderValue;
 import fr.robie.minimessageflow.Resolver;
 import fr.robie.minimessageflow.Template;
+import fr.robie.minimessageflow.ValueKeys;
+import fr.robie.minimessageflow.Values;
 import fr.robie.minimessageflow.cache.Cache;
 import fr.robie.minimessageflow.cache.CacheFactory;
 import fr.robie.minimessageflow.internal.PlaceholderScanner;
@@ -85,6 +87,7 @@ public final class Engine {
     private final BiConsumer<String, Throwable> errors;
     private final ModifierSet modifiers;
     private final boolean bareHex;
+    private final ValueKeys keys;
 
     /**
      * @param legacyCodes whether {@code &c}, {@code §c}, {@code #rrggbb}... are read
@@ -98,10 +101,13 @@ public final class Engine {
      * @param errors         told the key and the exception when a resolver or a value throws
      * @param modifiers      the modifiers of placeholders
      * @param bareHex        whether a {@code #rrggbb} without {@code &} is a colour (with legacy codes on)
+     * @param keys           the keys declared for {@link Values}
      */
     public Engine(boolean legacyCodes, @NotNull List<Resolver> resolvers, @Nullable TagResolver userTags, int cacheSize,
                   boolean nativeCompiler, boolean verifyNative, @NotNull CacheFactory caches,
-                  @NotNull BiConsumer<String, Throwable> errors, @NotNull ModifierSet modifiers, boolean bareHex) {
+                  @NotNull BiConsumer<String, Throwable> errors, @NotNull ModifierSet modifiers, boolean bareHex,
+                  @NotNull ValueKeys keys) {
+        this.keys = keys;
         this.errors = errors;
         this.modifiers = modifiers;
         this.bareHex = bareHex;
@@ -372,14 +378,21 @@ public final class Engine {
      * The value of a placeholder: the call's value, the call's value with modifiers ({@code %price.comma%}), a
      * resolver's component or text, a resolver's value with modifiers; or null.
      */
-    @Nullable Component value(@NotNull KeyPlan plan, @NotNull Placeholder placeholders, @Nullable Pointered viewer) {
+    @Nullable Component value(@NotNull KeyPlan plan, @NotNull Placeholder placeholders, @Nullable Values values,
+                              @Nullable Pointered viewer) {
         String key = plan.key;
+        String[] bases = plan.bases;
+        boolean modifiers = bases.length > 0;
+        if (values != null) {
+            Component given = fromValues(plan, values);
+            if (given != null) {
+                return given;
+            }
+        }
         PlaceholderValue value = placeholders.get(key);
         if (value != null) {
             return this.toComponent(key, value, viewer);
         }
-        String[] bases = plan.bases;
-        boolean modifiers = bases.length > 0;
         for (int i = 0; i < bases.length; i++) {
             PlaceholderValue base = placeholders.get(bases[i]);
             if (base != null) {
@@ -431,6 +444,33 @@ public final class Engine {
     }
 
     /**
+     * The value {@link Values} has for a key, read by its place: the key itself, else the first base that is set with
+     * its modifiers. Null when it has none, or when the modifiers don't apply.
+     */
+    private static @Nullable Component fromValues(@NotNull KeyPlan plan, @NotNull Values values) {
+        if (plan.index >= 0) {
+            Object raw = values.raw(plan.index);
+            if (raw != null) {
+                return raw instanceof String text ? Component.text(text) : (Component) raw;
+            }
+        }
+        int[] indexes = plan.baseIndexes;
+        for (int i = 0; i < indexes.length; i++) {
+            Object raw = indexes[i] < 0 ? null : values.raw(indexes[i]);
+            if (raw != null) {
+                PlaceholderModifiers.Chain chain = plan.chains[i];
+                String text = chain == null ? null : chain.apply(raw instanceof String string ? string : PLAIN.serialize((Component) raw));
+                return text == null ? null : Component.text(text);
+            }
+        }
+        return null;
+    }
+
+    @NotNull ValueKeys keys() {
+        return this.keys;
+    }
+
+    /**
      * How a key is read, found once when its message is compiled: the key itself, then the key before each of its
      * dots (longest first) with the modifiers after it. The modifiers are the ones known at that time.
      */
@@ -444,11 +484,22 @@ public final class Engine {
          * For each base, its modifiers, or null when one of them is unknown (the placeholder stays as written).
          */
         final @Nullable PlaceholderModifiers.Chain[] chains;
+        /**
+         * The place of the key in {@link Values}, and of each base; -1 for a key that was not declared.
+         */
+        final int index;
+        final int[] baseIndexes;
 
-        private KeyPlan(@NotNull String key, @NotNull String @NotNull [] bases, @Nullable PlaceholderModifiers.Chain @NotNull [] chains) {
+        private KeyPlan(@NotNull String key, @NotNull String @NotNull [] bases, @Nullable PlaceholderModifiers.Chain @NotNull [] chains,
+                        @NotNull ValueKeys keys) {
             this.key = key;
             this.bases = bases;
             this.chains = chains;
+            this.index = keys.indexOf(key);
+            this.baseIndexes = new int[bases.length];
+            for (int i = 0; i < bases.length; i++) {
+                this.baseIndexes[i] = keys.indexOf(bases[i]);
+            }
         }
     }
 
@@ -459,8 +510,8 @@ public final class Engine {
             bases.add(key.substring(0, dot));
             chains.add(this.modifiers.compile(key.substring(dot + 1)));
         }
-        return bases.isEmpty() ? new KeyPlan(key, KeyPlan.NO_BASES, KeyPlan.NO_CHAINS)
-                : new KeyPlan(key, bases.toArray(KeyPlan.NO_BASES), chains.toArray(KeyPlan.NO_CHAINS));
+        return bases.isEmpty() ? new KeyPlan(key, KeyPlan.NO_BASES, KeyPlan.NO_CHAINS, this.keys)
+                : new KeyPlan(key, bases.toArray(KeyPlan.NO_BASES), chains.toArray(KeyPlan.NO_CHAINS), this.keys);
     }
 
     /**

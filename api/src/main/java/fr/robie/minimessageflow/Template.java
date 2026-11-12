@@ -83,6 +83,23 @@ public interface Template {
     }
 
     /**
+     * Renders the message with values kept in a {@link Values}, made once and set again for each send
+     * ({@code MiniMessageFlow.newValues()}): nothing is built per send but the component.
+     *
+     * @param values the values of this call, from the instance that compiled this message
+     * @param viewer who will see it, for the resolvers; may be null
+     * @return the component
+     * @throws IllegalArgumentException the values are another instance's
+     */
+    default @NotNull Component render(@NotNull Values values, @Nullable Pointered viewer) {
+        return this.render(values.toPlaceholder(), viewer);
+    }
+
+    default @NotNull Component render(@NotNull Values values) {
+        return this.render(values, null);
+    }
+
+    /**
      * Renders the message as plain text, without colours or events: for a console, a log, a title compared as text.
      */
     default @NotNull String renderPlain(@NotNull Placeholder placeholders, @Nullable Pointered viewer) {

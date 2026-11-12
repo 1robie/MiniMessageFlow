@@ -39,11 +39,13 @@ public final class MiniMessageFlow {
 
     private final Engine engine;
     private final Cache<String, Template> templates;
+    private final ValueKeys keys;
 
     private MiniMessageFlow(@NotNull Builder builder) {
+        this.keys = builder.keys.build();
         this.engine = new Engine(builder.legacyCodes, builder.resolvers, builder.tags, builder.valueCacheSize,
                 builder.nativeCompiler, builder.verifyNative, builder.caches, builder.errors, builder.modifiers.build(),
-                builder.bareHexColors);
+                builder.bareHexColors, builder.keys.build());
         this.templates = builder.caches.create(CacheFactory.Kind.TEMPLATES, builder.templateCacheSize);
     }
 
@@ -64,6 +66,14 @@ public final class MiniMessageFlow {
     public @NotNull Template compile(@NotNull String message) {
         Objects.requireNonNull(message, "message cannot be null");
         return this.engine.compile(message);
+    }
+
+    /**
+     * New {@link Values} for the keys declared on the builder ({@link Builder#key}), all unset: make one per thread
+     * that renders, set it for each send, and give it to {@link Template#render(Values, Pointered)}.
+     */
+    public @NotNull Values newValues() {
+        return this.keys.newValues();
     }
 
     /**
@@ -151,6 +161,7 @@ public final class MiniMessageFlow {
         private CacheFactory caches = DEFAULT_CACHES;
         private @Nullable BiConsumer<String, Throwable> errors;
         private final ModifierSet.Builder modifiers = ModifierSet.builder();
+        private final ValueKeys.Builder keys = ValueKeys.builder();
         private boolean bareHexColors = true;
 
         private Builder() {
@@ -261,6 +272,17 @@ public final class MiniMessageFlow {
         public @NotNull Builder errorHandler(@NotNull BiConsumer<String, Throwable> handler) {
             this.errors = Objects.requireNonNull(handler, "handler cannot be null");
             return this;
+        }
+
+        /**
+         * Declares a placeholder whose value will be given through {@link Values}: keep the key in a constant.
+         * Its value is then read by its place, without a lookup by name; {@code %name.comma%} reads it too.
+         * A {@link Placeholder} still works for the same name.
+         *
+         * @param name the placeholder's name, without {@code %} or modifiers
+         */
+        public @NotNull ValueKey key(@NotNull String name) {
+            return this.keys.key(name);
         }
 
         private static int positive(int size) {

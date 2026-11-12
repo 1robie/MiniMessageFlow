@@ -530,4 +530,56 @@ class EngineTest {
             assertEquals(ComponentRuns.of(stageOne.compile(message).render(given)), ComponentRuns.of(template.render(given)), message);
         }
     }
+
+    @Test
+    @DisplayName("Values set by key render as the same values in a Placeholder")
+    void valuesByKey() {
+        MiniMessageFlow.Builder builder = MiniMessageFlow.builder()
+                .resolver(Resolver.of(Placeholder.of("server", "<gold>Lobby", "coins", "7")));
+        fr.robie.minimessageflow.ValueKey name = builder.key("name");
+        fr.robie.minimessageflow.ValueKey coins = builder.key("coins");
+        fr.robie.minimessageflow.ValueKey item = builder.key("item");
+        assertSame(name, builder.key("name"), "a name is declared once");
+        MiniMessageFlow flow = builder.build();
+        fr.robie.minimessageflow.Values values = flow.newValues();
+
+        String[] messages = {
+                "<green>%name%</green> has <gold>%coins.comma%</gold> on %server%",
+                "<name> <coins:comma> <item>",
+                "<click:run_command:'/pay %name% %coins%'>[pay %name%]</click>",
+                "<hover:show_text:'<gray>%coins.comma% coins'>%name%</hover> %item%",
+                "<gradient:red:blue>Welcome %name%!</gradient>",
+                "<selector:@p> %name% %coins%",
+                "%name% %name.upper% %unknown% %coins.nosuch%",
+        };
+        Component sword = Component.text("Sword", NamedTextColor.AQUA);
+        for (String message : messages) {
+            Template template = flow.compile(message);
+            values.clear().set(name, "Steve").set(coins, 1250).set(item, sword);
+            assertEquals(ComponentRuns.of(template.render(Placeholder.builder().register("name", "Steve")
+                            .register("coins", "1250").register("item", sword).build())),
+                    ComponentRuns.of(template.render(values)), message);
+            // A key that is not set is a key the call does not give: the resolvers are asked, or it stays as written.
+            values.unset(coins).unset(item);
+            assertEquals(ComponentRuns.of(template.render(Placeholder.of("name", "Steve"))),
+                    ComponentRuns.of(template.render(values)), message + ", coins and item unset");
+            values.set(name, (String) null);
+            assertEquals(ComponentRuns.of(template.render(Placeholder.of("name", ""))),
+                    ComponentRuns.of(template.render(values)), message + ", empty name");
+        }
+        assertTrue(values.isSet(name));
+        assertFalse(values.clear().isSet(name));
+
+        // Values of another instance are refused, as are its keys.
+        MiniMessageFlow.Builder otherBuilder = MiniMessageFlow.builder();
+        fr.robie.minimessageflow.ValueKey otherKey = otherBuilder.key("name");
+        MiniMessageFlow other = otherBuilder.build();
+        assertThrows(IllegalArgumentException.class, () -> values.set(otherKey, "x"));
+        Template dynamic = flow.compile("%name%");
+        assertThrows(IllegalArgumentException.class, () -> dynamic.render(other.newValues()));
+        // The copy for a template that does not read Values.
+        values.set(name, "Steve").set(item, sword);
+        assertEquals("Steve", values.toPlaceholder().parse("%name%"));
+        assertEquals(2, values.toPlaceholder().getMap().size());
+    }
 }

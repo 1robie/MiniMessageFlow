@@ -210,4 +210,19 @@ class PlaceholderTest {
         org.junit.jupiter.api.Assertions.assertEquals("1 2", Placeholder.builder().register("a", "0")
                 .registerAll(java.util.Map.of("a", "1", "c", "2")).build().parse("%a% %c%"));
     }
+
+    @Test
+    @DisplayName("A builder used again after build() does not change what it built")
+    void builderUsedAgain() {
+        Placeholder.Builder builder = Placeholder.builder().register("a", "1");
+        Placeholder first = builder.build();
+        Placeholder second = builder.register("a", "2").register("b", "3").build();
+        assertEquals("1 %b%", first.parse("%a% %b%"));
+        assertEquals("2 3", second.parse("%a% %b%"));
+        assertEquals(1, first.getMap().size());
+        assertEquals("2", Placeholder.of("a", "1", "a", "2").parse("%a%"), "the last value of a key wins");
+        assertTrue(Placeholder.builder().register("v", viewer -> "x").build().isViewerDependent("%v%"));
+        assertTrue(Placeholder.builder().registerAll(Placeholder.of("v", viewer -> "x")).build().isViewerDependent("%v%"));
+        assertFalse(Placeholder.builder().register("v", "x").build().isViewerDependent("%v%"));
+    }
 }
