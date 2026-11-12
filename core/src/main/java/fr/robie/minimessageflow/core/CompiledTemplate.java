@@ -32,6 +32,17 @@ final class CompiledTemplate implements Template {
      */
     private final @Nullable List<Object> pieces;
     private final List<String> inlineKeys;
+    /**
+     * A key is evaluated once per render, wherever it is written (a supplier may give another value each time).
+     * For each slot, the first slot with the same key (itself when it is the first).
+     */
+    private final int[] slotSources;
+    private final boolean repeatedSlots;
+    /**
+     * For each inline value, where a render already has it: the slot with the same key, or {@code -1 - i} for the
+     * first inline value {@code i} with the same key (itself when it is the first).
+     */
+    private final int[] inlineSources;
     private final Engine.Form base;
     /**
      * The message with values in a click or insert argument, compiled once (stage 3), or null.
@@ -49,9 +60,31 @@ final class CompiledTemplate implements Template {
         this.slots = slots;
         this.pieces = pieces;
         this.inlineKeys = inlineKeys;
+        this.slotSources = new int[slots.size()];
+        boolean repeated = false;
+        for (int slot = 0; slot < this.slotSources.length; slot++) {
+            this.slotSources[slot] = firstSlot(slots, slots.key(slot));
+            repeated |= this.slotSources[slot] != slot;
+        }
+        this.repeatedSlots = repeated;
+        this.inlineSources = new int[inlineKeys.size()];
+        for (int i = 0; i < this.inlineSources.length; i++) {
+            String key = inlineKeys.get(i);
+            int slot = firstSlot(slots, key);
+            this.inlineSources[i] = slot >= 0 ? slot : -1 - inlineKeys.indexOf(key);
+        }
         this.base = base;
         this.inline = inline;
         this.isStatic = pieces == null && slots.size() == 0 && base instanceof Engine.Form.Static;
+    }
+
+    private static int firstSlot(@NotNull Engine.Slots slots, @NotNull String key) {
+        for (int slot = 0; slot < slots.size(); slot++) {
+            if (slots.key(slot).equals(key)) {
+                return slot;
+            }
+        }
+        return -1;
     }
 
     @Override
@@ -71,10 +104,16 @@ final class CompiledTemplate implements Template {
         }
         int size = this.slots.size();
         Component[] values = new Component[size];
+        // The values as given (null when there is none), for the other places the same key is written.
+        Component[] given = this.pieces != null || this.repeatedSlots ? new Component[size] : null;
         Set<Integer> unknown = null;
         for (int slot = 0; slot < size; slot++) {
             String key = this.slots.key(slot);
-            Component value = this.engine.value(key, placeholders, viewer);
+            int source = this.slotSources[slot];
+            Component value = given != null && source != slot ? given[source] : this.engine.value(key, placeholders, viewer);
+            if (given != null) {
+                given[slot] = value;
+            }
             if (value == null) {
                 if (this.slots.isName(slot)) {
                     if (unknown == null) {
@@ -96,7 +135,12 @@ final class CompiledTemplate implements Template {
             String[] inline = new String[this.inlineKeys.size()];
             for (int i = 0; i < inline.length; i++) {
                 String key = this.inlineKeys.get(i);
-                inline[i] = Engine.inlineText(key, this.engine.value(key, placeholders, viewer));
+                int source = this.inlineSources[i];
+                if (source < 0 && -1 - source < i) {
+                    inline[i] = inline[-1 - source];
+                } else {
+                    inline[i] = Engine.inlineText(key, source >= 0 ? given[source] : this.engine.value(key, placeholders, viewer));
+                }
             }
             if (this.inline != null && unclaimed.isEmpty()) {
                 Component rendered = this.engine.renderInline(this.inline, values, inline);

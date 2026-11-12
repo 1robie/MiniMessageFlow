@@ -56,4 +56,22 @@ class PlaceholderScannerTest {
         assertFalse(PlaceholderScanner.anyKey("no tokens", VALUES::containsKey));
         assertFalse(PlaceholderScanner.anyKey("%unknown%a%", VALUES::containsKey), "a closing % is not reused");
     }
+
+    @org.junit.jupiter.api.Test
+    @org.junit.jupiter.api.DisplayName("Tags are found as MiniMessage's tokenizer finds them")
+    void tagRanges() {
+        org.junit.jupiter.api.Assertions.assertArrayEquals(new int[]{0, 5, 8, 14}, PlaceholderScanner.tagRanges("<red>hi </red>"));
+        org.junit.jupiter.api.Assertions.assertArrayEquals(new int[0], PlaceholderScanner.tagRanges("I <3 you, 5 < 6, <>"));
+        org.junit.jupiter.api.Assertions.assertArrayEquals(new int[]{5, 10}, PlaceholderScanner.tagRanges("I <3 <red>you"));
+        org.junit.jupiter.api.Assertions.assertArrayEquals(new int[]{0, 27}, PlaceholderScanner.tagRanges("<hover:show_text:'<red>a>'>x"));
+        org.junit.jupiter.api.Assertions.assertArrayEquals(new int[]{0, 15}, PlaceholderScanner.tagRanges("<insert:'a\\'>'>x"));
+        org.junit.jupiter.api.Assertions.assertArrayEquals(new int[0], PlaceholderScanner.tagRanges("\\<red> a <b\\<c"));
+        // A quote closed later hides the '>', as in MiniMessage.
+        org.junit.jupiter.api.Assertions.assertArrayEquals(new int[0], PlaceholderScanner.tagRanges("<don't b> it's"));
+        int[] ranges = PlaceholderScanner.tagRanges("a <b> c <d>");
+        org.junit.jupiter.api.Assertions.assertFalse(PlaceholderScanner.inTag(ranges, 0));
+        org.junit.jupiter.api.Assertions.assertTrue(PlaceholderScanner.inTag(ranges, 3));
+        org.junit.jupiter.api.Assertions.assertFalse(PlaceholderScanner.inTag(ranges, 5));
+        org.junit.jupiter.api.Assertions.assertTrue(PlaceholderScanner.inTag(ranges, 9));
+    }
 }

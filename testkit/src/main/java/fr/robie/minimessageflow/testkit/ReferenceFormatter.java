@@ -27,15 +27,16 @@ import java.util.Set;
  * nothing is cached. Engines are compared with it.
  * <ol>
  *     <li>each {@code %key%} (with modifiers) that has a value becomes a MiniMessage placeholder tag holding the value
- *     as a component, so a value is never parsed with the message; inside a tag it is written as plain text, without
+ *     as a component, so a value is never parsed with the message; inside a tag (as MiniMessage's tokenizer finds
+ *     them: the {@code <} of {@code I <3 you} opens none) it is written as plain text, without
  *     the characters that could end the tag or be read again ({@code < > ' " \ % & §});</li>
  *     <li>a value is the call's, else a global's: global text is formatted, parsed on its own (its colours and
  *     unclosed tags end with it), with the marker noncharacters {@code U+FDD0}/{@code U+FDD1} removed;</li>
  *     <li>a {@code <key>} tag that is not a standard tag and has a value is that value ({@code <key:modifier:arg>}
  *     written in the message itself (a value written into a tag, as in {@code <%g%>}, never names one)
  *     for modifiers); without a value it is whatever MiniMessage makes of an unknown tag;</li>
- *     <li>legacy colours become MiniMessage tags ({@link LegacyColors}), then MiniMessage parses with the standard
- *     tags.</li>
+ *     <li>legacy colours become MiniMessage tags ({@link LegacyColors}), except inside a {@code <click>} or
+ *     {@code <insert>} tag (a command, a URL), then MiniMessage parses with the standard tags.</li>
  * </ol>
  * MessageFlow 1.1 ({@code TemplateCacheTest.OldFormat}) with the two deliberate changes of MiniMessageFlow:
  * global text is isolated (MessageFlow pasted it into the message), and {@code <key>} placeholders.
@@ -64,15 +65,13 @@ public final class ReferenceFormatter implements TestFormatter {
     public @NotNull Component format(@NotNull String message, @NotNull Placeholder placeholders, @Nullable Pointered viewer) {
         TagResolver.Builder tags = TagResolver.builder();
         Map<String, String> tagNames = new HashMap<>();
-        int[] state = {0, 0}; // tag depth, scanned up to
+        int[] ranges = PlaceholderScanner.tagRanges(message);
         String text = PlaceholderScanner.replace(message, (key, start) -> {
-            state[0] = tagDepth(message, state[1], start, state[0]);
-            state[1] = start;
             Component component = this.value(key, placeholders, viewer);
             if (component == null) {
                 return null;
             }
-            if (state[0] > 0) {
+            if (PlaceholderScanner.inTag(ranges, start)) {
                 return stripTagBreaking(PLAIN.serialize(component));
             }
             String tagName = tagNames.get(key);
@@ -103,7 +102,7 @@ public final class ReferenceFormatter implements TestFormatter {
             }
         };
         tags.resolver(keyTags);
-        return MINI_MESSAGE.deserialize(LegacyColors.toMiniMessage(stripMarkers(text)), tags.build());
+        return MINI_MESSAGE.deserialize(legacy(stripMarkers(text)), tags.build());
     }
 
     /**
@@ -187,18 +186,22 @@ public final class ReferenceFormatter implements TestFormatter {
         }
     }
 
-    private static int tagDepth(@NotNull String message, int from, int to, int depth) {
-        for (int i = from; i < to; i++) {
-            char c = message.charAt(i);
-            if (c == '\\') {
-                i++;
-            } else if (c == '<') {
-                depth++;
-            } else if (c == '>' && depth > 0) {
-                depth--;
-            }
+    /**
+     * A whole {@code <click:...>} or {@code <insert:...>} tag: its arguments are a command, a URL or text to copy,
+     * where legacy codes are not read.
+     */
+    private static final java.util.regex.Pattern EVENT_TAG = java.util.regex.Pattern.compile(
+            "(?is)<(?:click|insert):(?:'(?:\\\\.|[^'\\\\])*'|\"(?:\\\\.|[^\"\\\\])*\"|[^<>'\"])*>");
+
+    private static @NotNull String legacy(@NotNull String text) {
+        StringBuilder out = new StringBuilder(text.length() + 16);
+        java.util.regex.Matcher matcher = EVENT_TAG.matcher(text);
+        int from = 0;
+        while (matcher.find()) {
+            out.append(LegacyColors.toMiniMessage(text.substring(from, matcher.start()))).append(matcher.group());
+            from = matcher.end();
         }
-        return depth;
+        return out.append(LegacyColors.toMiniMessage(text.substring(from))).toString();
     }
 
     private static @NotNull String stripTagBreaking(@NotNull String text) {

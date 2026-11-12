@@ -7,6 +7,7 @@ import fr.robie.minimessageflow.Template;
 import fr.robie.minimessageflow.testkit.ComponentRuns;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
+import net.kyori.adventure.text.minimessage.MiniMessage;
 import net.kyori.adventure.text.minimessage.tag.Tag;
 import net.kyori.adventure.text.minimessage.tag.resolver.TagResolver;
 import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
@@ -71,16 +72,60 @@ class EngineTest {
     @DisplayName("A value in a click or insert argument: compiled once, the event built at render")
     void eventArgumentsCompiledOnce() {
         for (String message : new String[]{"<click:run_command:'/tp %name%'>[tp]</click>", "<insert:%name%>x</insert> %b%",
+                "<click:run_command:'/a%name%'>x", "<click:run_command:'/w %name%1'>x", "<click:run_command:'/w #%name%%name%'>x",
                 "<red><click:suggest_command:'/w %name% '><gradient:red:blue>%name%</gradient></click>"}) {
             CompiledTemplate template = (CompiledTemplate) this.flow.compile(message);
             assertNotNull(template.inlineForm(), message);
         }
-        // A value touching a hex digit or a legacy code character could join it once written in; a value in a hover
-        // or a click inside a gradient: the old path.
-        for (String message : new String[]{"<click:run_command:'/a%name%'>x", "<click:run_command:'&%name%'>x",
-                "<click:run_command:'/w %name%1'>x", "<hover:show_text:'%name%'>x",
+        // A value in a hover or a click inside a gradient: the old path.
+        for (String message : new String[]{"<hover:show_text:'%name%'>x",
                 "<gradient:red:blue><click:suggest_command:'/w %name% '>%name%</click></gradient>"}) {
             assertNull(((CompiledTemplate) this.flow.compile(message)).inlineForm(), message);
+        }
+    }
+
+    @Test
+    @DisplayName("Legacy codes are not read in a click or insert tag: a URL keeps its & and #")
+    void eventArgumentsKeepLegacyCharacters() {
+        MiniMessage mini = MiniMessage.miniMessage();
+        for (boolean nativeCompiler : new boolean[]{true, false}) {
+            MiniMessageFlow flow = MiniMessageFlow.builder().nativeCompiler(nativeCompiler).build();
+            assertEquals(mini.deserialize("<click:open_url:'https://x.com/?a=1&b=2&c=3#abcdef'><red>link"),
+                    flow.format("<click:open_url:'https://x.com/?a=1&b=2&c=3#abcdef'>&clink").compact());
+            assertEquals(mini.deserialize("<click:copy_to_clipboard:'#ff0000'>copy"),
+                    flow.format("<CLICK:copy_to_clipboard:\"#ff0000\">copy").compact());
+            assertEquals(mini.deserialize("<insert:'&c#ff0000'>x"), flow.format("<insert:'&c#ff0000'>x").compact());
+            assertEquals(mini.deserialize("<click:run_command:'/color #ff0000 &a'>x"),
+                    flow.format("<click:run_command:'/color %c% &a'>x", Placeholder.of("c", "#ff0000")).compact());
+            // A hover's text is formatted text: codes are still read there.
+            assertEquals(ComponentRuns.of(mini.deserialize("<hover:show_text:'<red>hi'>x")),
+                    ComponentRuns.of(flow.format("<hover:show_text:'&chi'>x")));
+        }
+    }
+
+    @Test
+    @DisplayName("A < that opens no tag is text: the values after it are whole, and compiled once")
+    void strayTagStart() {
+        Placeholder name = Placeholder.of("name", "O'Brien & <Co>");
+        for (String message : new String[]{"I <3 you %name%", "5 < 6, hi %name%", "<red>a <- b</red> %name%", "x <3 %name% <b>y"}) {
+            CompiledTemplate template = (CompiledTemplate) this.flow.compile(message);
+            assertNull(template.inlineForm(), message);
+            assertFalse(template.baseForm() instanceof Engine.Form.WithValues, message);
+            assertTrue(PLAIN.serialize(template.render(name)).contains("O'Brien & <Co>"), message);
+        }
+        Component styled = this.flow.format("I <3 you %name%", Placeholder.of("name", Component.text("Steve", NamedTextColor.RED)));
+        assertTrue(MiniMessage.miniMessage().serialize(styled).contains("<red>Steve"));
+    }
+
+    @Test
+    @DisplayName("A key is evaluated once per render, wherever it is written")
+    void valueEvaluatedOnce() {
+        for (String message : new String[]{"<click:run_command:'/x %n%'>%n% %n%</click>",
+                "<click:run_command:'/x %n% %n%'><insert:'%n%'>y", "<hover:show_text:'%n%'>%n% <n>"}) {
+            AtomicInteger calls = new AtomicInteger();
+            Component rendered = this.flow.compile(message).render(Placeholder.of("n", () -> String.valueOf(calls.incrementAndGet())));
+            assertEquals(1, calls.get(), message);
+            assertFalse(MiniMessage.miniMessage().serialize(rendered).contains("2"), message);
         }
     }
 

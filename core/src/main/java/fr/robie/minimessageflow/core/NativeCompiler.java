@@ -141,22 +141,17 @@ final class NativeCompiler {
     /**
      * An argument made of literal pieces ({@code String}) and inline values ({@link Inline}).
      */
-    record Argument(@NotNull List<Object> pieces, boolean quoted, boolean legacyCodes) {
+    record Argument(@NotNull List<Object> pieces, boolean quoted) {
         /**
-         * @return the argument, or null when a value would change how MiniMessage splits the tag (in an argument
-         * without quotes, a {@code :} or a {@code <} from a legacy colour): that render goes the stage 1 way
+         * @return the argument, or null when a value would change how MiniMessage splits the tag (a {@code :} in an
+         * argument without quotes): that render goes the stage 1 way
          */
         @Nullable String render(@NotNull String @NotNull [] inline) {
             StringBuilder out = new StringBuilder(32);
             for (Object piece : this.pieces) {
-                if (piece instanceof Inline(int index, char before)) {
+                if (piece instanceof Inline(int index)) {
                     String value = inline[index];
-                    // The stage 1 engine converts legacy codes in the text the value is written into: a "#rrggbb" in a
-                    // value becomes a colour tag there too (& and § are already gone from inline values).
-                    if (this.legacyCodes && value.indexOf('#') >= 0) {
-                        value = LegacyCodes.toMiniMessage(before + value).substring(1);
-                    }
-                    if (!this.quoted && (value.indexOf(':') >= 0 || value.indexOf('<') >= 0)) {
+                    if (!this.quoted && value.indexOf(':') >= 0) {
                         return null;
                     }
                     out.append(value);
@@ -169,9 +164,9 @@ final class NativeCompiler {
     }
 
     /**
-     * Inline value number {@code index}, written after the character {@code before}.
+     * Inline value number {@code index}.
      */
-    record Inline(int index, char before) {
+    record Inline(int index) {
     }
 
     /**
@@ -934,9 +929,8 @@ final class NativeCompiler {
     }
 
     /**
-     * Splits an argument at its inline markers. A value touching a character that could join it into a legacy code
-     * or a hex colour ({@code &}, {@code §}, {@code #}, a hex digit, another value) would be read differently once
-     * written in: such a message keeps the stage 1 path.
+     * Splits an argument at its inline markers. Legacy codes are not read in a click or insert tag, so a value is
+     * written in as it is.
      */
     private @NotNull Argument argument(@NotNull String text, char before) {
         List<Object> pieces = new ArrayList<>();
@@ -947,11 +941,6 @@ final class NativeCompiler {
             if (end < 0) {
                 throw unsupported();
             }
-            char previous = start == 0 ? before : text.charAt(start - 1);
-            char next = end + 1 < text.length() ? text.charAt(end + 1) : ' ';
-            if (joins(previous) || joins(next) || previous == Engine.INLINE_END || next == Engine.INLINE_START) {
-                throw unsupported();
-            }
             if (start > from) {
                 pieces.add(text.substring(from, start));
             }
@@ -959,17 +948,13 @@ final class NativeCompiler {
             if (index < 0) {
                 throw unsupported();
             }
-            pieces.add(new Inline(index, previous));
+            pieces.add(new Inline(index));
             from = end + 1;
         }
         if (from < text.length()) {
             pieces.add(text.substring(from));
         }
-        return new Argument(List.copyOf(pieces), before != ':', this.legacyCodes);
-    }
-
-    private static boolean joins(char c) {
-        return c == '&' || c == '§' || c == '#' || Character.digit(c, 16) >= 0;
+        return new Argument(List.copyOf(pieces), before != ':');
     }
 
     /**

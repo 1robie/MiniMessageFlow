@@ -61,6 +61,7 @@ public final class Engine {
      */
     static final char PROBE = '';
     private static final int MAX_VARIANTS = 64;
+    private static final int[] NO_TAGS = new int[0];
     private static final PlainTextComponentSerializer PLAIN = PlainTextComponentSerializer.plainText();
 
     private final boolean legacyCodes;
@@ -121,14 +122,12 @@ public final class Engine {
         String text = stripNoncharacters(source);
         Slots slots = new Slots();
         List<String> inlineKeys = new ArrayList<>(0);
-        int[] state = {0, 0}; // tag depth, scanned up to
+        int[] tags = text.indexOf('%') < 0 ? NO_TAGS : PlaceholderScanner.tagRanges(text);
         String tagged = PlaceholderScanner.replace(text, (key, start) -> {
-            state[0] = tagDepth(text, state[1], start, state[0]);
-            state[1] = start;
             if (!isKey(key)) {
                 return null;
             }
-            if (state[0] > 0) {
+            if (PlaceholderScanner.inTag(tags, start)) {
                 inlineKeys.add(key);
                 return INLINE_START + String.valueOf(inlineKeys.size() - 1) + INLINE_END;
             }
@@ -524,23 +523,6 @@ public final class Engine {
             }
         }
         return true;
-    }
-
-    /**
-     * Follows {@code <} and {@code >} (not escaped by a backslash) from {@code from} to {@code to}.
-     */
-    private static int tagDepth(@NotNull String message, int from, int to, int depth) {
-        for (int i = from; i < to; i++) {
-            char c = message.charAt(i);
-            if (c == '\\') {
-                i++;
-            } else if (c == '<') {
-                depth++;
-            } else if (c == '>' && depth > 0) {
-                depth--;
-            }
-        }
-        return depth;
     }
 
     /**

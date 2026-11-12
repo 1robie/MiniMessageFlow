@@ -114,4 +114,80 @@ public final class PlaceholderScanner {
         }
         return end;
     }
+
+    /**
+     * Where the tags of a text are, as MiniMessage's tokenizer finds them: {@code start, end} pairs (end exclusive),
+     * in order. A {@code <} opens a tag only when a {@code >} closes it before another {@code <}: the {@code <} of
+     * {@code I <3 you} or {@code 5 < 6} is text. Quotes inside a tag hide {@code <} and {@code >} when they are closed
+     * later; a backslash escapes {@code <} (and a quote inside quotes).
+     *
+     * @param text the text
+     * @return the pairs, empty when the text has no tag
+     */
+    public static int @NotNull [] tagRanges(@NotNull String text) {
+        int length = text.length();
+        int[] ranges = new int[8];
+        int count = 0;
+        int marker = -1; // the '<' of the tag being read, or -1 in text
+        char quote = 0;  // the quote being read inside the tag, or 0
+        for (int i = 0; i < length; i++) {
+            char c = text.charAt(i);
+            if (c == '\\' && i + 1 < length) {
+                char next = text.charAt(i + 1);
+                if (quote != 0) {
+                    if (next == quote || next == '\\') {
+                        i++;
+                        continue;
+                    }
+                } else if (marker < 0) {
+                    if (next == '<' || next == '\\') {
+                        i++;
+                        continue;
+                    }
+                } else if (next == '<') {
+                    marker = -1;
+                    i++;
+                    continue;
+                }
+            }
+            if (quote != 0) {
+                if (c == quote) {
+                    quote = 0;
+                }
+            } else if (marker < 0) {
+                if (c == '<') {
+                    marker = i;
+                }
+            } else if (c == '>') {
+                if (i > marker + 1) {
+                    if (count == ranges.length) {
+                        ranges = java.util.Arrays.copyOf(ranges, count * 2);
+                    }
+                    ranges[count++] = marker;
+                    ranges[count++] = i + 1;
+                }
+                marker = -1;
+            } else if (c == '<') {
+                marker = i;
+            } else if ((c == '\'' || c == '"') && text.indexOf(c, i + 1) >= 0) {
+                quote = c;
+            }
+        }
+        return count == ranges.length ? ranges : java.util.Arrays.copyOf(ranges, count);
+    }
+
+    /**
+     * Whether a position is inside one of the {@link #tagRanges} of its text.
+     */
+    public static boolean inTag(int @NotNull [] ranges, int position) {
+        for (int i = 0; i < ranges.length; i += 2) {
+            if (position < ranges[i]) {
+                return false;
+            }
+            if (position < ranges[i + 1]) {
+                return true;
+            }
+        }
+        return false;
+    }
 }

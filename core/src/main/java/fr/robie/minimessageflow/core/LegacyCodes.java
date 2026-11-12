@@ -10,7 +10,7 @@ import org.jetbrains.annotations.Nullable;
  * <p>
  * {@code §x§r§r§g§g§b§b}, {@code &#rrggbb} and a bare {@code #rrggbb} become {@code <#rrggbb>}, and {@code &c} /
  * {@code §c} become {@code <red>}. A {@code #rrggbb} right after {@code <}, {@code :} or {@code </} is already part of
- * a tag and is kept.
+ * a tag and is kept. Nothing is converted inside a {@code <click>} or {@code <insert>} tag.
  */
 @ApiStatus.Internal
 public final class LegacyCodes {
@@ -32,9 +32,19 @@ public final class LegacyCodes {
             return message;
         }
 
-        StringBuilder out = new StringBuilder(length + 16).append(message, 0, i);
+        // From the start: a click or insert tag before the first code must be seen to be skipped.
+        StringBuilder out = new StringBuilder(length + 16);
+        i = 0;
         while (i < length) {
             char c = message.charAt(i);
+            if (c == '<') {
+                int end = eventTagEnd(message, i);
+                if (end > 0) {
+                    out.append(message, i, end);
+                    i = end;
+                    continue;
+                }
+            }
             if ((c == '&' || c == '§') && i + 1 < length) {
                 char code = message.charAt(i + 1);
                 if (c == '§' && code == 'x' && isSectionHex(message, i + 2)) {
@@ -66,6 +76,44 @@ public final class LegacyCodes {
             i++;
         }
         return out.toString();
+    }
+
+    /**
+     * The end (exclusive) of the {@code <click:...>} or {@code <insert:...>} tag that starts at {@code start}, or -1
+     * when no such tag starts there. Its arguments are a command, a URL or text to copy, never formatted text: a
+     * {@code &b} or {@code #rrggbb} in them is kept as written ({@code https://x.y/?a=1&b=2}).
+     */
+    static int eventTagEnd(@NotNull String message, int start) {
+        int i;
+        if (message.regionMatches(true, start + 1, "click:", 0, 6) || message.regionMatches(true, start + 1, "insert:", 0, 7)) {
+            i = message.indexOf(':', start);
+        } else {
+            return -1;
+        }
+        int length = message.length();
+        while (i < length) {
+            char c = message.charAt(i++);
+            if (c == '>') {
+                return i;
+            }
+            if (c == '<') {
+                return -1;
+            }
+            if (c == '\'' || c == '"') {
+                while (true) {
+                    if (i >= length) {
+                        return -1; // quotes never closed: not a tag
+                    }
+                    char q = message.charAt(i++);
+                    if (q == '\\') {
+                        i++;
+                    } else if (q == c) {
+                        break;
+                    }
+                }
+            }
+        }
+        return -1;
     }
 
     private static boolean afterTagStart(@NotNull StringBuilder out) {

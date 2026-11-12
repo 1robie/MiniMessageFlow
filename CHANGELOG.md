@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- Legacy codes are no longer read inside a `<click>` or `<insert>` tag: a URL keeps its `&b=2` and `#abcdef`, a
+  copied `#ff0000` stays as written. A hover's text is still formatted.
+- A `<` that opens no tag (`I <3 you`, `5 < 6`) no longer changes the placeholders after it: their values keep every
+  character and their style, and the message is compiled once instead of once per value.
+- A key is evaluated once per render, wherever it is written (text, `<key>`, tag arguments).
+
 ## 1.0.0
 
 First release. A fast text formatter for Adventure 4.17 (Paper 1.20.6) to 5.x (Minecraft 26), with no dependency
