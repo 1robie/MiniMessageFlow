@@ -78,8 +78,8 @@ class EngineTest {
             CompiledTemplate template = (CompiledTemplate) this.flow.compile(message);
             assertNotNull(template.inlineForm(), message);
         }
-        // A value in a hover or a click inside a gradient: the old path.
-        for (String message : new String[]{"<hover:show_text:'%name%'>x",
+        // A value under a gradient in a hover's text, or a click inside a gradient: the old path.
+        for (String message : new String[]{"<hover:show_text:'<gradient:red:blue>%name%</gradient>'>x",
                 "<gradient:red:blue><click:suggest_command:'/w %name% '>%name%</click></gradient>"}) {
             assertNull(((CompiledTemplate) this.flow.compile(message)).inlineForm(), message);
         }
@@ -419,7 +419,8 @@ class EngineTest {
         assertEquals(Template.Kind.NATIVE, this.flow.compile("<click:run_command:'/x %a%'>x").kind());
         assertEquals(Template.Kind.MARKERS, this.flow.compile("<selector:@p> %a%").kind());
         assertEquals(Template.Kind.PARSED, this.flow.compile("<hover:show_text:'<name>'>x").kind());
-        assertEquals(Template.Kind.PARSED, this.flow.compile("<hover:show_text:'%a%'>x").kind());
+        assertEquals(Template.Kind.NATIVE, this.flow.compile("<hover:show_text:'%a%'>x").kind());
+        assertEquals(Template.Kind.PARSED, this.flow.compile("<hover:show_text:'<rainbow>%a%'>x").kind());
 
         Template shop = this.flow.compile("<green>%item%</green> <price:comma> <click:run_command:'/buy %id%'>x %item%</click> <b>");
         assertEquals(java.util.List.of("item", "price.comma", "id"), shop.placeholders());
@@ -487,5 +488,46 @@ class EngineTest {
         assertEquals(1, calls.get(), "evaluated once per render");
         assertTrue(Placeholder.ofViewerComponent("v", viewer -> Component.empty()).isViewerDependent("%v%"));
         assertFalse(Placeholder.ofComponent("v", Component::empty).isViewerDependent("%v%"));
+    }
+
+    @Test
+    @DisplayName("A value in a hover's text or a translation argument is placed at render, as MiniMessage would read it")
+    void valuesInHoverAndTranslation() {
+        MiniMessageFlow stageOne = MiniMessageFlow.builder().nativeCompiler(false).build();
+        String[] messages = {
+                "<hover:show_text:'<gray>Balance: <gold>%coins%'>%name%</hover> joined",
+                "<hover:show_text:'%coins% coins, <b>%name%</b>!'><red>x",
+                "<hover:show_text:%coins%>x</hover> y",
+                "<lang:chat.type.text:'%name%':'<green>%coins%'> after",
+                "<lang_or:some.key:'fallback':'<b>%name%</b> has %coins%'>",
+                "<tr:some.key:%name%:fixed>",
+        };
+        String[][] values = {
+                {"Steve", "1,250"}, {"", ""}, {"<red>inject", "&cred"}, {"a:b", "c:d"}, {"#ff0000", "#00ff00"},
+                {"it's \"quoted\"", "100%"}, {"\back", "x y"},
+        };
+        for (String message : messages) {
+            Template template = this.flow.compile(message);
+            assertEquals(Template.Kind.NATIVE, template.kind(), message);
+            Template expected = stageOne.compile(message);
+            for (String[] pair : values) {
+                Placeholder given = Placeholder.of("name", pair[0], "coins", pair[1]);
+                assertEquals(ComponentRuns.of(expected.render(given)), ComponentRuns.of(template.render(given)),
+                        message + " with " + pair[0] + ", " + pair[1]);
+            }
+            assertEquals(ComponentRuns.of(expected.render()), ComponentRuns.of(template.render()), message + " without values");
+            Placeholder component = Placeholder.builder().register("name", Component.text("Gold", NamedTextColor.GOLD))
+                    .register("coins", "5").build();
+            assertEquals(ComponentRuns.of(expected.render(component)), ComponentRuns.of(template.render(component)),
+                    message + " with a component");
+        }
+        // What a value could turn into a legacy code or another tag stays with MiniMessage.
+        for (String message : new String[]{
+                "<hover:show_text:'Issue #%coins%'>x", "<hover:show_text:'&%coins%'>x",
+                "<hover:show_text:'<gradient:red:blue>%name%</gradient>'>x", "<hover:show_text:'<%name%>hi'>x"}) {
+            Template template = this.flow.compile(message);
+            Placeholder given = Placeholder.of("name", "red", "coins", "123456");
+            assertEquals(ComponentRuns.of(stageOne.compile(message).render(given)), ComponentRuns.of(template.render(given)), message);
+        }
     }
 }

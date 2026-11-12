@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- A value in a hover's text (`<hover:show_text:'Balance: %coins%'>`) or in a translation argument
+  (`<lang:key:'%player%'>`) is placed at render: such a message is `NATIVE` instead of `PARSED`, and a value never
+  seen before no longer costs a MiniMessage parse (a hover with a changing value: 22.7 µs and 67 KB to 0.22 µs and
+  1.6 KB). A value with a `#`, or a `:` in an argument without quotes, still goes through MiniMessage for that
+  render, as does a value under a gradient there.
 - Modifiers are read once, when a message is compiled: a render with `%price.comma%` no longer splits and looks
   the chain up each time (the shop line renders about three times faster and allocates less than half).
   A shared modifier registered with `PlaceholderModifiers.register` after a message is compiled is not seen by

@@ -37,8 +37,8 @@ public interface Template {
         STATIC,
         /**
          * Compiled without MiniMessage: a render only places the values. A render can still go through MiniMessage
-         * for a value it can't place itself (a styled value under a gradient, a {@code :} in a click argument without
-         * quotes).
+         * for a value it can't place itself (a styled value under a gradient, a {@code :} in an argument without
+         * quotes, a {@code #} in a hover's text or a translation argument).
          */
         NATIVE,
         /**
@@ -47,7 +47,7 @@ public interface Template {
         MARKERS,
         /**
          * Parsed by MiniMessage with its values, once per set of values (cached): the slowest, for messages whose
-         * values MiniMessage must see (a placeholder in a hover's text, in a translation argument...).
+         * values MiniMessage must see (a placeholder under a gradient in a hover's text, in a tag's name...).
          */
         PARSED
     }

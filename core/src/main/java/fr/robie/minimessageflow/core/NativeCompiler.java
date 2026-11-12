@@ -17,11 +17,13 @@ import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.Deque;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 
 /**
@@ -56,6 +58,8 @@ final class NativeCompiler {
      */
     private static final java.util.regex.Pattern PLAYER_NAME = java.util.regex.Pattern.compile("(?!(?:true|false|on|off)$)[A-Za-z0-9_]{1,16}");
     private static final String[] NO_INLINE = new String[0];
+    private static final char LEGACY_SECTION = 0xA7;
+    private static final char BACKSLASH = 0x5C;
 
     private final TagResolver standard;
     private final @Nullable TagResolver userTags;
@@ -127,6 +131,21 @@ final class NativeCompiler {
         }
 
         /**
+         * A {@code show_text} hover whose text holds values, built at render, over its parts.
+         */
+        record Hover(@NotNull Style style, @NotNull InlineText text, @NotNull List<Part> parts) implements Part {
+        }
+
+        /**
+         * A translatable with values in its arguments, built at render; its parts go into it.
+         *
+         * @param arguments each a {@code Component} (no value in it) or an {@link InlineText}
+         */
+        record Translatable(@NotNull Style style, @NotNull String key, @Nullable String fallback, @NotNull List<Object> arguments,
+                            @NotNull List<Part> parts) implements Part {
+        }
+
+        /**
          * A gradient or rainbow over text and values, coloured at render.
          */
         record Transform(@NotNull Style style, @NotNull ColorChange change, @NotNull List<Item> items) implements Part {
@@ -165,6 +184,79 @@ final class NativeCompiler {
     }
 
     /**
+     * A tag argument read as MiniMessage (a hover's text, a translation argument) with inline values in its text,
+     * built again at each render.
+     *
+     * @param inline  the inline values in it
+     * @param quoted  whether the argument was written in quotes
+     * @param compact whether MiniMessage's result is compacted (a translation argument)
+     * @param runs    the text as runs, each a {@link Run} or a fixed {@code Component} with the style around it, when
+     *                only what it shows matters (a hover's text) and it is made of text under styling tags; null
+     *                otherwise
+     */
+    record InlineText(@NotNull Element root, int @NotNull [] inline, boolean quoted, boolean compact, @Nullable List<Object> runs) {
+        /**
+         * @return the component, or null when a value could be read otherwise by MiniMessage, were it written into
+         * the text: a {@code :} in an argument without quotes (it splits the tag), a {@code #} (a colour, with legacy
+         * codes on). That render goes the stage 1 way.
+         */
+        @Nullable Component render(@NotNull String @NotNull [] values) {
+            for (int index : this.inline) {
+                String value = values[index];
+                if (value.indexOf('#') >= 0 || (!this.quoted && value.indexOf(':') >= 0)) {
+                    return null;
+                }
+            }
+            if (this.runs != null) {
+                return this.renderRuns(values);
+            }
+            // The common shape, one run of text under its tags: one component, which is also what compact() gives.
+            Component single = this.root.single(values, Style.empty());
+            if (single != null) {
+                return single;
+            }
+            Component built = this.root.build(values);
+            return this.compact ? built.compact() : built;
+        }
+
+        private @NotNull Component renderRuns(@NotNull String @NotNull [] values) {
+            List<Object> runs = Objects.requireNonNull(this.runs);
+            int size = runs.size();
+            if (size == 1) {
+                return runs.getFirst() instanceof Run run ? Component.text(run.text(values), run.style())
+                        : (Component) runs.getFirst();
+            }
+            Component[] shown = new Component[size];
+            for (int i = 0; i < size; i++) {
+                shown[i] = runs.get(i) instanceof Run run ? Component.text(run.text(values), run.style())
+                        : (Component) runs.get(i);
+            }
+            return Component.empty().children(Arrays.asList(shown));
+        }
+    }
+
+    /**
+     * Text shown with one style: literal pieces ({@code String}) and inline values ({@code Integer}, their number).
+     */
+    record Run(@NotNull Style style, @NotNull Object @NotNull [] pieces) {
+        @NotNull String text(@NotNull String @NotNull [] values) {
+            Object[] pieces = this.pieces;
+            if (pieces.length == 1) {
+                return piece(pieces[0], values);
+            }
+            StringBuilder out = new StringBuilder(32);
+            for (Object piece : pieces) {
+                out.append(piece(piece, values));
+            }
+            return out.toString();
+        }
+
+        private static @NotNull String piece(@NotNull Object piece, @NotNull String @NotNull [] values) {
+            return piece instanceof Integer index ? values[index] : (String) piece;
+        }
+    }
+
+    /**
      * Inline value number {@code index}.
      */
     record Inline(int index) {
@@ -177,7 +269,9 @@ final class NativeCompiler {
         for (Part part : parts) {
             if (part instanceof Part.Transform
                     || part instanceof Part.Group(Style style, List<Part> children, Component base) && hasTransform(children)
-                    || part instanceof Part.Event event && hasTransform(event.parts())) {
+                    || part instanceof Part.Event event && hasTransform(event.parts())
+                    || part instanceof Part.Hover hover && hasTransform(hover.parts())
+                    || part instanceof Part.Translatable translatable && hasTransform(translatable.parts())) {
                 return true;
             }
         }
@@ -236,6 +330,30 @@ final class NativeCompiler {
                         return null;
                     }
                     out.add(Component.text("", event.merge(style, Style.Merge.Strategy.IF_ABSENT_ON_TARGET)).children(rendered));
+                }
+                case Part.Hover(Style style, InlineText text, List<Part> children) -> {
+                    List<Component> rendered = renderParts(children, values, inline);
+                    Component hover = rendered == null ? null : text.render(inline);
+                    if (hover == null) {
+                        return null;
+                    }
+                    out.add(Component.text("", style.hoverEvent(HoverEvent.showText(hover))).children(rendered));
+                }
+                case Part.Translatable(Style style, String key, String fallback, List<Object> arguments, List<Part> children) -> {
+                    List<Component> rendered = renderParts(children, values, inline);
+                    if (rendered == null) {
+                        return null;
+                    }
+                    List<Component> with = new ArrayList<>(arguments.size());
+                    for (Object argument : arguments) {
+                        Component component = argument instanceof InlineText text ? text.render(inline) : (Component) argument;
+                        if (component == null) {
+                            return null;
+                        }
+                        with.add(component);
+                    }
+                    Component base = fallback == null ? Component.translatable(key, with) : Component.translatable(key, fallback, with);
+                    out.add(base.style(style).children(rendered));
                 }
                 case Part.Transform(Style style, ColorChange change, List<Item> items) -> {
                     Component colored = transform(style, change, items, values);
@@ -364,6 +482,7 @@ final class NativeCompiler {
                 case Node.Text(String text) -> parts.add(new Part.Fixed(Component.text(text, inherited)));
                 case Node.Insert(Component component) -> parts.add(new Part.Fixed(styled(component, inherited)));
                 case Node.Slot(int slot) -> parts.add(new Part.Value(slot, inherited));
+                case Node.InlineText ignored -> throw unsupported(); // only in a tag argument, never reduced
                 case Element element -> {
                     Style style = element.style.merge(inherited, Style.Merge.Strategy.IF_ABSENT_ON_TARGET);
                     if (!element.isDynamic()) {
@@ -372,6 +491,10 @@ final class NativeCompiler {
                         }
                     } else if (element.change != null) {
                         parts.add(new Part.Transform(style, element.change, items(element.children, Style.empty())));
+                    } else if (element.dynamic instanceof InlineText text) {
+                        parts.add(new Part.Hover(style, text, merge(reduce(element.children, Style.empty()))));
+                    } else if (element.dynamic instanceof DynamicTranslatable(String key, String fallback, List<Object> arguments)) {
+                        parts.add(new Part.Translatable(style, key, fallback, arguments, merge(reduce(element.children, Style.empty()))));
                     } else if (element.action != null) {
                         parts.add(new Part.Event(style, element.action, element.argument, merge(reduce(element.children, Style.empty()))));
                     } else if (hasEvents(element.style) || element.base != null) {
@@ -397,8 +520,10 @@ final class NativeCompiler {
                 case Node.Text(String text) -> items.add(new Item(text, -1, inherited));
                 case Node.Insert insert -> throw unsupported(); // MiniMessage colours an object component as one character
                 case Node.Slot(int slot) -> items.add(new Item(null, slot, inherited));
+                case Node.InlineText ignored -> throw unsupported();
                 case Element element -> {
-                    if (element.change != null || element.action != null || element.base != null || element.style.color() != null) {
+                    if (element.change != null || element.action != null || element.base != null || element.dynamic != null
+                            || element.style.color() != null) {
                         throw unsupported();
                     }
                     items.addAll(items(element.children, element.style.merge(inherited, Style.Merge.Strategy.IF_ABSENT_ON_TARGET)));
@@ -440,7 +565,7 @@ final class NativeCompiler {
 
     // --- parsing ------------------------------------------------------------------------------------------------
 
-    private sealed interface Node permits Node.Text, Node.Slot, Node.Insert, Element {
+    private sealed interface Node permits Node.Text, Node.Slot, Node.Insert, Node.InlineText, Element {
         record Text(@NotNull String text) implements Node {
         }
 
@@ -452,12 +577,24 @@ final class NativeCompiler {
 
         record Slot(int slot) implements Node {
         }
+
+        /**
+         * Inline value number {@code index}, as text: only in a tag argument read as MiniMessage.
+         */
+        record InlineText(int index) implements Node {
+        }
+    }
+
+    /**
+     * What makes a translatable with values in its arguments.
+     */
+    private record DynamicTranslatable(@NotNull String key, @Nullable String fallback, @NotNull List<Object> arguments) {
     }
 
     /**
      * A tag that wraps what follows it until it is closed.
      */
-    private static final class Element implements Node {
+    static final class Element implements Node {
         final String name;
         final Style style;
         /**
@@ -474,8 +611,18 @@ final class NativeCompiler {
          */
         final @Nullable Component base;
 
+        /**
+         * What is built at render besides a click or an insertion: an {@link NativeCompiler.InlineText} (a hover's
+         * text) or a {@link DynamicTranslatable}; null for none.
+         */
+        final @Nullable Object dynamic;
+
         Element(@NotNull String name, @NotNull Style style) {
             this(name, style, null, null, null, null);
+        }
+
+        Element(@NotNull String name, @NotNull Object dynamic) {
+            this(name, Style.empty(), null, null, null, null, dynamic);
         }
 
         Element(@NotNull String name, @NotNull Component base) {
@@ -489,6 +636,12 @@ final class NativeCompiler {
 
         private Element(@NotNull String name, @NotNull Style style, @Nullable String action, @Nullable Argument argument,
                         @Nullable ColorChange change, @Nullable Component base) {
+            this(name, style, action, argument, change, base, null);
+        }
+
+        private Element(@NotNull String name, @NotNull Style style, @Nullable String action, @Nullable Argument argument,
+                        @Nullable ColorChange change, @Nullable Component base, @Nullable Object dynamic) {
+            this.dynamic = dynamic;
             this.name = name;
             this.style = style;
             this.action = action;
@@ -501,7 +654,7 @@ final class NativeCompiler {
          * Whether something in it changes with the values.
          */
         boolean isDynamic() {
-            if (this.action != null) {
+            if (this.action != null || this.dynamic != null) {
                 return true;
             }
             for (Node child : this.children) {
@@ -513,7 +666,7 @@ final class NativeCompiler {
         }
 
         boolean hasText() {
-            if (this.base != null) {
+            if (this.base != null || this.dynamic instanceof DynamicTranslatable) {
                 return true; // a keybind or translatable shows something
             }
             for (Node child : this.children) {
@@ -526,6 +679,62 @@ final class NativeCompiler {
         }
 
         @NotNull Component build() {
+            return this.build(NO_INLINE);
+        }
+
+        /**
+         * Built once, for a part of a tag argument that holds no inline value (set when the argument is compiled).
+         */
+        private @Nullable Component fixed;
+
+        /**
+         * This element as one text component, when it is only text and inline values under styling tags; null
+         * otherwise, or when the text is empty.
+         */
+        @Nullable Component single(@NotNull String @NotNull [] inline, @NotNull Style inherited) {
+            if (this.change != null || this.base != null || this.dynamic != null || this.action != null) {
+                return null;
+            }
+            Style style = inherited.isEmpty() ? this.style : this.style.merge(inherited, Style.Merge.Strategy.IF_ABSENT_ON_TARGET);
+            List<Node> nodes = this.children;
+            int size = nodes.size();
+            if (size == 1 && nodes.getFirst() instanceof Element only) {
+                return only.single(inline, style);
+            }
+            String text = null;
+            StringBuilder joined = null;
+            for (int i = 0; i < size; i++) {
+                String piece;
+                switch (nodes.get(i)) {
+                    case Node.Text(String value) -> piece = value;
+                    case Node.InlineText(int index) -> piece = inline[index];
+                    default -> {
+                        return null;
+                    }
+                }
+                if (text == null) {
+                    text = piece;
+                } else {
+                    if (joined == null) {
+                        joined = new StringBuilder(text.length() + piece.length() + 16).append(text);
+                    }
+                    joined.append(piece);
+                }
+            }
+            if (joined != null) {
+                text = joined.toString();
+            }
+            return text == null || text.isEmpty() ? null : Component.text(text, style);
+        }
+
+        /**
+         * @param inline the inline values, for a tag argument with {@link Node.InlineText} in it: a value and the text
+         *               around it make one text, as when the value is written into the argument and parsed
+         */
+        @NotNull Component build(@NotNull String @NotNull [] inline) {
+            if (this.fixed != null) {
+                return this.fixed;
+            }
             if (this.change != null) {
                 Component colored = transform(this.style, this.change, items(this.children, Style.empty()), new Component[0]);
                 if (colored == null) {
@@ -534,13 +743,29 @@ final class NativeCompiler {
                 return colored;
             }
             List<Component> built = new ArrayList<>(this.children.size());
+            StringBuilder joined = null;
             for (Node child : this.children) {
+                if (inline.length != 0 && (child instanceof Node.Text || child instanceof Node.InlineText)) {
+                    if (joined == null) {
+                        joined = new StringBuilder();
+                    }
+                    joined.append(child instanceof Node.Text(String text) ? text : inline[((Node.InlineText) child).index()]);
+                    continue;
+                }
+                if (joined != null) {
+                    built.add(Component.text(joined.toString()));
+                    joined = null;
+                }
                 switch (child) {
                     case Node.Text(String text) -> built.add(Component.text(text));
                     case Node.Insert(Component component) -> built.add(component);
-                    case Element element -> built.add(element.build());
+                    case Element element -> built.add(element.build(inline));
                     case Node.Slot slot -> throw new IllegalStateException("slot in a fixed part");
+                    case Node.InlineText text -> throw new IllegalStateException("inline value in a fixed part");
                 }
+            }
+            if (joined != null) {
+                built.add(Component.text(joined.toString()));
             }
             return (this.base == null ? Component.text("", this.style) : this.base.style(this.style)).children(built);
         }
@@ -571,6 +796,124 @@ final class NativeCompiler {
     }
 
     private @NotNull Element parse(@NotNull String text, boolean slotsAllowed) {
+        return this.parse(text, slotsAllowed, null);
+    }
+
+    /**
+     * A tag argument read as MiniMessage, with inline values in its text.
+     */
+    private @NotNull InlineText inlineText(@NotNull String argument, char before, boolean compact) {
+        List<Integer> found = new ArrayList<>(2);
+        Element root = this.parse(argument, false, found);
+        requireInlineInPlainText(root, false);
+        int[] inline = new int[found.size()];
+        for (int i = 0; i < inline.length; i++) {
+            inline[i] = found.get(i);
+        }
+        List<Object> runs = null;
+        if (!compact) {
+            List<Object> flat = new ArrayList<>();
+            if (flatten(root, Style.empty(), flat)) {
+                runs = new ArrayList<>(flat.size());
+                for (Object item : flat) {
+                    runs.add(item instanceof RunBuilder builder ? builder.build() : item);
+                }
+                runs = List.copyOf(runs);
+            }
+        }
+        return new InlineText(root, inline, before != ':', compact, runs);
+    }
+
+    private static final class RunBuilder {
+        final Style style;
+        final List<Object> pieces = new ArrayList<>(2);
+
+        RunBuilder(@NotNull Style style) {
+            this.style = style;
+        }
+
+        void add(@NotNull Object piece) {
+            if (piece instanceof String text && !this.pieces.isEmpty() && this.pieces.getLast() instanceof String last) {
+                this.pieces.set(this.pieces.size() - 1, last + text);
+            } else {
+                this.pieces.add(piece);
+            }
+        }
+
+        @NotNull Run build() {
+            return new Run(this.style, this.pieces.toArray());
+        }
+    }
+
+    /**
+     * A tag argument as runs of text, each with the style of the tags around it: what it shows, without its tree.
+     *
+     * @return false when something in it is not text under a styling tag
+     */
+    private static boolean flatten(@NotNull Element element, @NotNull Style inherited, @NotNull List<Object> out) {
+        if (element.fixed != null) {
+            out.add(styled(element.fixed, inherited));
+            return true;
+        }
+        if (element.change != null || element.base != null || element.dynamic != null || element.action != null) {
+            return false;
+        }
+        Style style = element.style.merge(inherited, Style.Merge.Strategy.IF_ABSENT_ON_TARGET);
+        for (Node child : element.children) {
+            switch (child) {
+                case Node.Text(String text) -> piece(out, style, text);
+                case Node.InlineText(int index) -> piece(out, style, index);
+                case Node.Insert(Component component) -> out.add(styled(component, style));
+                case Element nested -> {
+                    if (!flatten(nested, style, out)) {
+                        return false;
+                    }
+                }
+                case Node.Slot ignored -> {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    private static void piece(@NotNull List<Object> out, @NotNull Style style, @NotNull Object piece) {
+        if (!out.isEmpty() && out.getLast() instanceof RunBuilder last && last.style.equals(style)) {
+            last.add(piece);
+        } else {
+            RunBuilder builder = new RunBuilder(style);
+            builder.add(piece);
+            out.add(builder);
+        }
+    }
+
+    /**
+     * An inline value under a gradient or rainbow would change its colours: left to MiniMessage.
+     */
+    private static boolean requireInlineInPlainText(@NotNull Element element, boolean underChange) {
+        boolean any = false;
+        for (Node child : element.children) {
+            if (child instanceof Node.InlineText) {
+                any = true;
+            } else if (child instanceof Element nested) {
+                boolean inside = requireInlineInPlainText(nested, underChange || nested.change != null);
+                if (!inside) {
+                    nested.fixed = nested.build();
+                }
+                any |= inside;
+            }
+        }
+        if (any && (underChange || element.change != null)) {
+            throw unsupported();
+        }
+        return any;
+    }
+
+    /**
+     * @param inline where the inline values found in the text are added (a tag argument read as MiniMessage); null
+     *               when the text may hold none
+     */
+    private @NotNull Element parse(@NotNull String text, boolean slotsAllowed, @Nullable List<Integer> inline) {
         Element root = new Element("", Style.empty());
         Deque<Element> open = new ArrayDeque<>();
         open.push(root);
@@ -580,7 +923,27 @@ final class NativeCompiler {
         while (i < length) {
             char c = text.charAt(i);
             if (c == Engine.INLINE_START) {
-                throw unsupported(); // an inline value outside a click or insert argument
+                int end = text.indexOf(Engine.INLINE_END, i);
+                if (inline == null || end < 0) {
+                    throw unsupported(); // an inline value outside a tag argument
+                }
+                // Written into the text, a value after one of these could make a legacy code with it ("&" + "c",
+                // "Issue #" + "123456"): MiniMessage's.
+                for (int back = i - 1; back >= 0 && back >= i - 14; back--) {
+                    char before = text.charAt(back);
+                    if (before == '&' || before == LEGACY_SECTION || before == '#' || before == BACKSLASH) {
+                        throw unsupported();
+                    }
+                }
+                int index = Engine.parseIndex(text, i + 1, end);
+                if (index < 0) {
+                    throw unsupported();
+                }
+                flush(pending, open.peek());
+                open.peek().children.add(new Node.InlineText(index));
+                inline.add(index);
+                i = end + 1;
+                continue;
             }
             if (c == '\\' && i + 1 < length && (text.charAt(i + 1) == '<' || text.charAt(i + 1) == '\\')) {
                 pending.append(text.charAt(i + 1));
@@ -751,7 +1114,28 @@ final class NativeCompiler {
             return new Element(name, Style.empty(), name.equals("click") ? arguments.getFirst() : "insert", argument, null);
         }
         if (hasInline(arguments)) {
-            throw unsupported();
+            if (!slotsAllowed) {
+                throw unsupported(); // in an argument of an argument: MiniMessage's
+            }
+            if (name.equals("hover") && arguments.size() == 2 && arguments.getFirst().equals("show_text")) {
+                return new Element(name, this.inlineText(arguments.get(1), tag.before().get(1), false));
+            }
+            int from = switch (name) {
+                case "lang", "tr", "translate" -> 1;
+                case "lang_or", "tr_or", "translate_or" -> 2;
+                default -> throw unsupported();
+            };
+            if (arguments.size() <= from || hasInline(arguments.subList(0, from))) {
+                throw unsupported();
+            }
+            List<Object> with = new ArrayList<>(arguments.size() - from);
+            for (int i = from; i < arguments.size(); i++) {
+                String argument = arguments.get(i);
+                with.add(argument.indexOf(Engine.INLINE_START) >= 0
+                        ? this.inlineText(argument, tag.before().get(i), true)
+                        : this.parse(argument, false).build().compact());
+            }
+            return new Element(name, new DynamicTranslatable(arguments.getFirst(), from == 2 ? arguments.get(1) : null, List.copyOf(with)));
         }
         if (name.equals("gradient")) {
             return new Element(name, Style.empty(), null, null, gradient(arguments));
