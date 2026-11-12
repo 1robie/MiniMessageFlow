@@ -14,6 +14,9 @@ import org.jetbrains.annotations.Nullable;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.BiConsumer;
 
 /**
  * Formats MiniMessage text with placeholders. Immutable and thread-safe: build one and share it.
@@ -35,7 +38,7 @@ public final class MiniMessageFlow {
 
     private MiniMessageFlow(@NotNull Builder builder) {
         this.engine = new Engine(builder.legacyCodes, builder.resolvers, builder.tags, builder.valueCacheSize,
-                builder.nativeCompiler, builder.verifyNative, builder.caches);
+                builder.nativeCompiler, builder.verifyNative, builder.caches, builder.errors);
         this.templates = builder.caches.create(CacheFactory.Kind.TEMPLATES, builder.templateCacheSize);
     }
 
@@ -94,6 +97,21 @@ public final class MiniMessageFlow {
         }
     };
 
+    /**
+     * The default error handler: one warning per key (the first 256 keys), so a broken hook shows in the log without
+     * a line per message sent.
+     */
+    private static @NotNull BiConsumer<String, Throwable> logOncePerKey() {
+        Set<String> reported = ConcurrentHashMap.newKeySet();
+        return (key, error) -> {
+            if (reported.size() < 256 && reported.add(key)) {
+                System.getLogger("MiniMessageFlow").log(System.Logger.Level.WARNING,
+                        "The value of the placeholder '" + key + "' threw; it is shown as if it had no value. "
+                                + "Reported once per placeholder.", error);
+            }
+        };
+    }
+
     public static final class Builder {
         private boolean legacyCodes = true;
         private final List<Resolver> resolvers = new ArrayList<>();
@@ -103,6 +121,7 @@ public final class MiniMessageFlow {
         private boolean nativeCompiler = true;
         private boolean verifyNative = true;
         private CacheFactory caches = DEFAULT_CACHES;
+        private @Nullable BiConsumer<String, Throwable> errors;
 
         private Builder() {
         }
@@ -151,9 +170,11 @@ public final class MiniMessageFlow {
         }
 
         /**
-         * Whether messages made only of colours, decorations, {@code reset}, {@code newline}, {@code click},
-         * {@code hover:show_text}, {@code insert} and placeholders are compiled without MiniMessage, so a render
-         * builds the component directly. Others always go through MiniMessage. Default: true.
+         * Whether messages made only of the tags the native compiler knows (colours, decorations, {@code reset},
+         * {@code newline}, {@code click}, {@code hover}, {@code insert}, {@code font}, {@code key}, {@code lang},
+         * {@code gradient}, {@code rainbow}, {@code transition}, placeholders, and on Adventure 5 {@code shadow},
+         * {@code sprite}, {@code head}) are compiled without MiniMessage, so a render builds the component directly.
+         * Others always go through MiniMessage. Default: true.
          */
         public @NotNull Builder nativeCompiler(boolean nativeCompiler) {
             this.nativeCompiler = nativeCompiler;
@@ -180,6 +201,17 @@ public final class MiniMessageFlow {
             return this;
         }
 
+        /**
+         * Told when a {@link Resolver} or a value of a call ({@code Placeholder.of("x", () -> ...)}) throws: the key
+         * as written, and the exception. The render goes on as if the key had no value from it. Called on the thread
+         * that renders, possibly often: it must be fast and thread-safe. Default: a warning in the log
+         * ({@code System.getLogger("MiniMessageFlow")}), once per key.
+         */
+        public @NotNull Builder errorHandler(@NotNull BiConsumer<String, Throwable> handler) {
+            this.errors = Objects.requireNonNull(handler, "handler cannot be null");
+            return this;
+        }
+
         private static int positive(int size) {
             if (size < 1) {
                 throw new IllegalArgumentException("size must be at least 1: " + size);
@@ -188,6 +220,9 @@ public final class MiniMessageFlow {
         }
 
         public @NotNull MiniMessageFlow build() {
+            if (this.errors == null) {
+                this.errors = logOncePerKey();
+            }
             return new MiniMessageFlow(this);
         }
     }

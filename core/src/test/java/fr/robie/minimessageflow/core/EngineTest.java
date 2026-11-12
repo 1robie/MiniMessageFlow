@@ -130,6 +130,36 @@ class EngineTest {
     }
 
     @Test
+    @DisplayName("A resolver or a value that throws: the error handler is told, the render goes on")
+    void errorHandler() {
+        java.util.List<String> keys = new java.util.concurrent.CopyOnWriteArrayList<>();
+        MiniMessageFlow flow = MiniMessageFlow.builder()
+                .resolver((key, viewer) -> {
+                    if (key.equals("broken")) {
+                        throw new IllegalStateException("hook down");
+                    }
+                    return null;
+                })
+                .resolver(Resolver.of(Placeholder.of("global", () -> {
+                    throw new IllegalStateException("global down");
+                })))
+                .errorHandler((key, error) -> {
+                    keys.add(key + ": " + error.getMessage());
+                    throw new IllegalStateException("a handler that throws changes nothing");
+                })
+                .build();
+        Component rendered = flow.format("a %broken% b %local% c %global% d", Placeholder.of("local", () -> {
+            throw new IllegalStateException("local down");
+        }));
+        assertEquals("a %broken% b %local% c %global% d", PLAIN.serialize(rendered));
+        assertEquals(java.util.List.of("broken: hook down", "local: local down", "global: global down"), keys);
+        // The default handler logs instead of throwing.
+        assertEquals("%x%", PLAIN.serialize(MiniMessageFlow.create().format("%x%", Placeholder.of("x", () -> {
+            throw new IllegalStateException("logged once");
+        }))));
+    }
+
+    @Test
     @DisplayName("format compiles a text once")
     void formatCachesTemplates() {
         AtomicInteger calls = new AtomicInteger();

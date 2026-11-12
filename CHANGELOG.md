@@ -7,6 +7,9 @@
 - A `<` that opens no tag (`I <3 you`, `5 < 6`) no longer changes the placeholders after it: their values keep every
   character and their style, and the message is compiled once instead of once per value.
 - A key is evaluated once per render, wherever it is written (text, `<key>`, tag arguments).
+- `errorHandler` on the builder: a resolver or a value that throws is no longer silent. By default it is logged
+  once per key (`System.getLogger("MiniMessageFlow")`). `Resolver.of(Placeholder)` lets a failing value through
+  to it.
 
 ## 1.0.0
 

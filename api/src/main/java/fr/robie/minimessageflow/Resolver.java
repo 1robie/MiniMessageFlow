@@ -25,6 +25,8 @@ public interface Resolver {
      *               to its value)
      * @param viewer who will see the message; may be null
      * @return the formatted text, or null when this resolver has no such key
+     * @throws RuntimeException the key has no value from this resolver for this render, and the instance's error
+     *                          handler is told
      */
     @Nullable String resolve(@NotNull String key, @Nullable Pointered viewer);
 
@@ -44,8 +46,10 @@ public interface Resolver {
             }
             try {
                 return value.evaluate(viewer);
+            } catch (RuntimeException e) {
+                throw e; // the engine tells its error handler, and goes on without this value
             } catch (Exception e) {
-                return null;
+                throw new IllegalStateException(e);
             }
         };
     }

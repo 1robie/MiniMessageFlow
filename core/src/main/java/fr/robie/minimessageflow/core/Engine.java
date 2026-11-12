@@ -29,6 +29,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.function.BiConsumer;
 
 /**
  * The stage 1 engine: MiniMessage parses each message once, with a marker where each placeholder goes, and each
@@ -76,6 +77,7 @@ public final class Engine {
     private final Cache<String, Component> resolverTexts;
     private final Cache<ValuesKey, Component> withValues;
     private final Cache<InlineKey, Form> inlineForms;
+    private final BiConsumer<String, Throwable> errors;
 
     /**
      * @param legacyCodes whether {@code &c}, {@code §c}, {@code #rrggbb}... are read
@@ -86,9 +88,12 @@ public final class Engine {
      * @param nativeCompiler whether messages made only of native tags are compiled without MiniMessage
      * @param verifyNative   whether each native template is checked against MiniMessage when compiled (false only
      *                       to test the native compiler itself)
+     * @param errors         told the key and the exception when a resolver or a value throws
      */
     public Engine(boolean legacyCodes, @NotNull List<Resolver> resolvers, @Nullable TagResolver userTags, int cacheSize,
-                  boolean nativeCompiler, boolean verifyNative, @NotNull CacheFactory caches) {
+                  boolean nativeCompiler, boolean verifyNative, @NotNull CacheFactory caches,
+                  @NotNull BiConsumer<String, Throwable> errors) {
+        this.errors = errors;
         this.legacyCodes = legacyCodes;
         this.nativeCompiler = nativeCompiler;
         this.verifyNative = verifyNative;
@@ -161,7 +166,7 @@ public final class Engine {
         }
         Slots trial = slots.copy();
         List<NativeCompiler.Part> parts = NativeCompiler.compile(this.legacy(tagged), StandardTags.defaults(), this.userTags,
-                trial, Set.of(), this.legacyCodes, true);
+                trial, Set.of(), true);
         if (parts == null) {
             return null;
         }
@@ -210,7 +215,7 @@ public final class Engine {
         Component longParsed = this.miniMessage.deserialize(this.legacy(text), new SlotTags(slots, unclaimed, false, longProbe));
         if (this.nativeCompiler) {
             List<NativeCompiler.Part> parts = NativeCompiler.compile(this.legacy(text), StandardTags.defaults(), this.userTags,
-                    slots, unclaimed, this.legacyCodes);
+                    slots, unclaimed);
             // Checked against MiniMessage with the same probe values: a message the native compiler would read
             // differently stays with MiniMessage.
             if (parts != null && (!this.verifyNative || (same(NativeCompiler.render(parts, shortProbe), shortParsed)
@@ -252,7 +257,7 @@ public final class Engine {
             return null;
         }
         List<NativeCompiler.Part> parts = NativeCompiler.compile(this.legacy(tagged), StandardTags.defaults(), this.userTags,
-                slots, Set.of(), this.legacyCodes);
+                slots, Set.of());
         if (parts == null) {
             return null;
         }
@@ -359,27 +364,27 @@ public final class Engine {
     @Nullable Component value(@NotNull String key, @NotNull Placeholder placeholders, @Nullable Pointered viewer) {
         PlaceholderValue value = placeholders.get(key);
         if (value != null) {
-            return toComponent(key, value, viewer);
+            return this.toComponent(key, value, viewer);
         }
         boolean modifiers = key.indexOf('.') > 0;
         if (modifiers) {
             String text = PlaceholderModifiers.resolve(key, k -> {
                 PlaceholderValue base = placeholders.get(k);
-                return base == null ? null : PLAIN.serialize(toComponent(k, base, viewer));
+                return base == null ? null : PLAIN.serialize(this.toComponent(k, base, viewer));
             });
             if (text != null) {
                 return Component.text(text);
             }
         }
         for (Resolver resolver : this.resolvers) {
-            String text = resolve(resolver, key, viewer);
+            String text = this.resolve(resolver, key, viewer);
             if (text != null) {
                 return this.parseResolverText(text);
             }
         }
         if (modifiers) {
             for (Resolver resolver : this.resolvers) {
-                String text = PlaceholderModifiers.resolve(key, k -> k.equals(key) ? null : resolve(resolver, k, viewer));
+                String text = PlaceholderModifiers.resolve(key, k -> k.equals(key) ? null : this.resolve(resolver, k, viewer));
                 if (text != null) {
                     return this.parseResolverText(text);
                 }
@@ -395,11 +400,23 @@ public final class Engine {
         return value == null ? "%" + key + "%" : stripTagBreaking(PLAIN.serialize(value));
     }
 
-    private static @Nullable String resolve(@NotNull Resolver resolver, @NotNull String key, @Nullable Pointered viewer) {
+    /**
+     * A resolver that throws has no value for the key; the error handler is told.
+     */
+    private @Nullable String resolve(@NotNull Resolver resolver, @NotNull String key, @Nullable Pointered viewer) {
         try {
             return resolver.resolve(key, viewer);
         } catch (RuntimeException e) {
+            this.report(key, e);
             return null;
+        }
+    }
+
+    private void report(@NotNull String key, @NotNull Throwable error) {
+        try {
+            this.errors.accept(key, error);
+        } catch (RuntimeException ignored) {
+            // A handler that throws must not break a render.
         }
     }
 
@@ -407,13 +424,17 @@ public final class Engine {
         return this.resolverTexts.get(text, t -> this.miniMessage.deserialize(this.legacy(stripNoncharacters(t))));
     }
 
-    private static @NotNull Component toComponent(@NotNull String key, @NotNull PlaceholderValue value, @Nullable Pointered viewer) {
+    /**
+     * A value that throws shows as the placeholder was written; the error handler is told.
+     */
+    private @NotNull Component toComponent(@NotNull String key, @NotNull PlaceholderValue value, @Nullable Pointered viewer) {
         if (value instanceof PlaceholderValue.ComponentValue(Component component)) {
             return component;
         }
         try {
             return Component.text(value.evaluate(viewer));
         } catch (Exception e) {
+            this.report(key, e);
             return Component.text("%" + key + "%");
         }
     }
@@ -606,14 +627,14 @@ public final class Engine {
         }
 
         /**
-         * Markers swapped for the values.
-         */
-        /**
          * Compiled without MiniMessage: fixed parts and values (stage 2).
          */
         record Native(@NotNull List<NativeCompiler.Part> parts, @Nullable WithValues fallback) implements Form {
         }
 
+        /**
+         * Markers swapped for the values.
+         */
         record Markers(@NotNull Component component) implements Form {
         }
 

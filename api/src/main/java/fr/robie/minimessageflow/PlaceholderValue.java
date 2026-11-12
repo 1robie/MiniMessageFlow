@@ -17,10 +17,10 @@ import java.util.function.Supplier;
  *   <li>{@link StaticValue} - Fixed string value</li>
  *   <li>{@link DynamicValue} - Supplier that generates a value at resolution time</li>
  *   <li>{@link ViewerValue} - Function that generates a value based on the viewer</li>
+ *   <li>{@link ComponentValue} - A ready-made component, inserted with its own style</li>
  * </ul>
  *
- * <p>Usage is typically internal; use {@link fr.robie.messageflow.formatter.Placeholder}
- * or {@link GlobalPlaceholderRegistry} to create and manage placeholder values.
+ * <p>Usage is typically internal; use {@link Placeholder} to create placeholder values.
  */
 public sealed interface PlaceholderValue permits PlaceholderValue.StaticValue, PlaceholderValue.DynamicValue, PlaceholderValue.ViewerValue, PlaceholderValue.ComponentValue {
 
@@ -84,8 +84,8 @@ public sealed interface PlaceholderValue permits PlaceholderValue.StaticValue, P
     }
 
     /**
-     * A ready-made component, inserted as is (Adventure only). On the legacy platform, and in
-     * {@code Placeholder#parse}, it is its legacy ({@code §}) text.
+     * A ready-made component, inserted as is. In {@code Placeholder#parse}, which gives text, it is its legacy
+     * ({@code §}) text.
      */
     record ComponentValue(@NotNull Component component) implements PlaceholderValue {
 

@@ -26,9 +26,12 @@ import java.util.Set;
 /**
  * Compiles a message without MiniMessage, when every tag in it is one of the native set: colours ({@code <red>},
  * {@code <#ff00aa>}, {@code <color:...>}), decorations and their negations, {@code <reset>}, {@code <newline>},
- * {@code <click>}, {@code <hover:show_text>}, {@code <insert>}, {@code <gradient>}, {@code <rainbow>}, and placeholders.
- * Any other tag (font, translatable, a user tag...) and the message is left to MiniMessage: {@link #compile} returns
- * null.
+ * {@code <click>}, {@code <hover>} ({@code show_text}, {@code show_item} with a key and count, {@code show_entity}),
+ * {@code <insert>}, {@code <font>}, {@code <key>}, {@code <lang>} and its aliases, {@code <gradient>},
+ * {@code <rainbow>}, {@code <transition>}, placeholders, and where the bridge builds them {@code <shadow>},
+ * {@code <sprite>} and {@code <head>}. Any other tag ({@code <selector>}, {@code <score>}, {@code <nbt>}, a user
+ * tag...) or a form of these the versions read differently, and the message is left to MiniMessage: {@link #compile}
+ * returns null.
  * <p>
  * The result is a list of {@link Part}s: fixed components built once, values with the style they inherit, groups for
  * a click, hover or insertion around values (kept on the parent, not copied onto each leaf), events whose argument
@@ -57,29 +60,25 @@ final class NativeCompiler {
     private final @Nullable TagResolver userTags;
     private final Engine.Slots slots;
     private final Set<Integer> unclaimed;
-    private final boolean legacyCodes;
     private final boolean discover;
 
     private NativeCompiler(@NotNull TagResolver standard, @Nullable TagResolver userTags, @NotNull Engine.Slots slots,
-                           @NotNull Set<Integer> unclaimed, boolean legacyCodes, boolean discover) {
+                           @NotNull Set<Integer> unclaimed, boolean discover) {
         this.standard = standard;
         this.userTags = userTags;
         this.slots = slots;
         this.unclaimed = unclaimed;
-        this.legacyCodes = legacyCodes;
         this.discover = discover;
     }
 
     /**
-     * @param text        the message with slot tags, legacy codes already converted; it may hold inline markers
-     *                    ({@link Engine#INLINE_START}) in click and insert arguments
-     * @param legacyCodes whether legacy codes are read (inline values are converted at render, as the stage 1 engine
-     *                    converts the text they are written into)
+     * @param text the message with slot tags, legacy codes already converted; it may hold inline markers
+     *             ({@link Engine#INLINE_START}) in click and insert arguments
      * @return the parts, or null when the message needs MiniMessage
      */
     static @Nullable List<Part> compile(@NotNull String text, @NotNull TagResolver standard, @Nullable TagResolver userTags,
-                                        @NotNull Engine.Slots slots, @NotNull Set<Integer> unclaimed, boolean legacyCodes) {
-        return compile(text, standard, userTags, slots, unclaimed, legacyCodes, false);
+                                        @NotNull Engine.Slots slots, @NotNull Set<Integer> unclaimed) {
+        return compile(text, standard, userTags, slots, unclaimed, false);
     }
 
     /**
@@ -87,10 +86,9 @@ final class NativeCompiler {
      *                 message; {@code slots} must then be a copy that is dropped when this returns null)
      */
     static @Nullable List<Part> compile(@NotNull String text, @NotNull TagResolver standard, @Nullable TagResolver userTags,
-                                        @NotNull Engine.Slots slots, @NotNull Set<Integer> unclaimed, boolean legacyCodes,
-                                        boolean discover) {
+                                        @NotNull Engine.Slots slots, @NotNull Set<Integer> unclaimed, boolean discover) {
         try {
-            NativeCompiler compiler = new NativeCompiler(standard, userTags, slots, unclaimed, legacyCodes, discover);
+            NativeCompiler compiler = new NativeCompiler(standard, userTags, slots, unclaimed, discover);
             Element root = compiler.parse(text, true);
             return merge(reduce(root.children, Style.empty()));
         } catch (Unsupported e) {

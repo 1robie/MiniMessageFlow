@@ -70,7 +70,11 @@ Component once = text.format("<red>Hello %name%", Placeholder.of("name", "Steve"
   read on its own: its colours and unclosed tags end with it.
 - **Builder options**: `legacyCodes(boolean)`, `tags(TagResolver)` (your own tags, which can replace standard ones),
   `templateCacheSize`, `valueCacheSize`, `cacheFactory(CacheFactory)` (your caches, for example Guava or Caffeine with
-  an expiry; the default is a bounded map without dependency), `nativeCompiler(boolean)`.
+  an expiry; the default is a bounded map without dependency), `nativeCompiler(boolean)`,
+  `errorHandler(BiConsumer<String, Throwable>)` (told when a resolver or a value throws; by default one warning per
+  key in the log).
+- **Legacy codes** are read in text and in a hover's text, not inside a `<click>` or `<insert>` tag: a URL keeps
+  its `&b=2` and `#abcdef`.
 
 **Translations** for Adventure's `GlobalTranslator`, per player language:
 
