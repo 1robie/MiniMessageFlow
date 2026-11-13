@@ -245,7 +245,7 @@ public final class Engine {
         }
         boolean swappable = this.insert(parsed, shortProbe).compact().equals(shortParsed)
                 && this.insert(parsed, longProbe).compact().equals(longParsed);
-        return swappable ? new Form.Markers(parsed) : withValues;
+        return swappable ? new Form.Markers(parsed, spine(parsed)) : withValues;
     }
 
     /**
@@ -370,12 +370,12 @@ public final class Engine {
                 // A gradient over a value with its own style: this render goes through MiniMessage.
                 yield rendered != null ? rendered : this.render(Objects.requireNonNull(fallback, "fallback"), values);
             }
-            case Form.Markers(Component component) -> this.insert(component, components(values)).compact();
-            case Form.WithValues(String text, Set<Integer> unclaimed, Slots slots) -> {
-                Component[] given = components(values);
-                yield this.withValues.get(new ValuesKey(text, unclaimed, Arrays.asList(given)),
-                        key -> this.miniMessage.deserialize(this.legacy(text), new SlotTags(slots, unclaimed, false, given)));
-            }
+            case Form.Markers(Component component, Object spine) -> fill(spine, values);
+            // The values as they are make the key (a text's hash is kept by the String; the array is this render's
+            // own and is never changed): they only become components when the message has to be parsed.
+            case Form.WithValues(String text, Set<Integer> unclaimed, Slots slots) -> this.withValues.get(
+                    new ValuesKey(text, unclaimed, Arrays.asList(values)),
+                    key -> this.miniMessage.deserialize(this.legacy(text), new SlotTags(slots, unclaimed, false, components(values))));
         };
     }
 
@@ -643,6 +643,80 @@ public final class Engine {
         return false;
     }
 
+    /**
+     * A component above a marker: itself without its children, and its children in order, each a {@code Component}
+     * (nothing to fill in it, compacted once), a {@code Spine}, or an {@code Integer} (the slot of a marker).
+     */
+    private record Spine(@NotNull Component shell, @NotNull Object @NotNull [] children) {
+    }
+
+    /**
+     * A parsed message ready to be filled: only the components above a marker are kept apart, so a render copies
+     * those and takes everything else as it is, without looking for the markers again or compacting.
+     *
+     * @return a {@link Spine}, the slot of a marker ({@code Integer}), or the component itself when it has no marker
+     */
+    private static @NotNull Object spine(@NotNull Component component) {
+        int marker = markerIndex(component);
+        if (marker >= 0) {
+            return marker;
+        }
+        List<Component> children = component.children();
+        Object[] built = null;
+        for (int i = 0; i < children.size(); i++) {
+            Object child = spine(children.get(i));
+            if (built == null && !(child instanceof Component)) {
+                built = new Object[children.size()];
+                for (int before = 0; before < i; before++) {
+                    built[before] = children.get(before).compact();
+                }
+            }
+            if (built != null) {
+                built[i] = child instanceof Component fixed ? fixed.compact() : child;
+            }
+        }
+        if (built == null) {
+            return component;
+        }
+        // A component that is nothing itself (MiniMessage's wrappers) gives its place to its children: fewer
+        // components in every render.
+        List<Object> flat = new ArrayList<>(built.length);
+        for (Object child : built) {
+            if (child instanceof Spine(Component shell, Object[] inner) && isNothing(shell)) {
+                flat.addAll(Arrays.asList(inner));
+            } else if (child instanceof Component fixed && isNothing(fixed.children(List.of())) && !fixed.children().isEmpty()) {
+                flat.addAll(fixed.children());
+            } else if (!(child instanceof Component fixed) || !fixed.equals(Component.empty())) {
+                flat.add(child);
+            }
+        }
+        Component shell = component.children(List.of());
+        return flat.size() == 1 && isNothing(shell) ? flat.getFirst() : new Spine(shell, flat.toArray());
+    }
+
+    /**
+     * Whether a component without its children shows nothing and gives its children nothing: empty text, no style.
+     */
+    private static boolean isNothing(@NotNull Component shell) {
+        return shell.equals(Component.empty());
+    }
+
+    private static @NotNull Component fill(@NotNull Object node, @Nullable Object @NotNull [] values) {
+        if (node instanceof Spine(Component shell, Object[] children)) {
+            Component[] filled = new Component[children.length];
+            for (int i = 0; i < children.length; i++) {
+                Object child = children[i];
+                filled[i] = child instanceof Component fixed ? fixed : fill(child, values);
+            }
+            return shell.children(Arrays.asList(filled));
+        }
+        if (node instanceof Integer slot) {
+            Object value = slot < values.length ? values[slot] : null;
+            return value == null ? Component.empty() : value instanceof String text ? Component.text(text) : (Component) value;
+        }
+        return (Component) node;
+    }
+
     private @NotNull Component insert(@NotNull Component component, @Nullable Component @NotNull [] values) {
         int index = markerIndex(component);
         if (index >= 0) {
@@ -800,8 +874,11 @@ public final class Engine {
 
         /**
          * Markers swapped for the values.
+         *
+         * @param component what MiniMessage parsed, with the markers
+         * @param spine     the same, ready to fill: see {@link Engine#spine}
          */
-        record Markers(@NotNull Component component) implements Form {
+        record Markers(@NotNull Component component, @NotNull Object spine) implements Form {
         }
 
         /**
@@ -811,7 +888,7 @@ public final class Engine {
         }
     }
 
-    private record ValuesKey(@NotNull String text, @NotNull Set<Integer> unclaimed, @NotNull List<Component> values) {
+    private record ValuesKey(@NotNull String text, @NotNull Set<Integer> unclaimed, @NotNull List<Object> values) {
     }
 
     private record InlineKey(@NotNull String text, @NotNull Set<Integer> unclaimed) {

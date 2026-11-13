@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- A message MiniMessage parsed with markers (a tag the native compiler leaves to it: `<selector>`, `<score>`, a
+  user tag...) is prepared once: a render copies only the components above a value and no longer walks the whole
+  tree or compacts it. `<selector:@p> %item% <score:steve:kills> %price%`: 684 ns and 2.1 KB to 138 ns and 0.8 KB.
+  The component shows the same but is no longer compacted with its values in: a value is its own component next
+  to the text around it (`Hi %name%` is three components, as a natively compiled message gives, where it was one).
 - A render builds less besides its result: a text value goes straight into its component (and into a click's or
   a hover's argument) instead of through a component of its own, the component a group or a gradient puts its
   content in is built when the message is compiled, and a click with a value is set on the style around it
