@@ -582,4 +582,32 @@ class EngineTest {
         assertEquals("Steve", values.toPlaceholder().parse("%name%"));
         assertEquals(2, values.toPlaceholder().getMap().size());
     }
+
+    @Test
+    @DisplayName("A gradient gives the same colours whatever was rendered before it, at every length")
+    void gradientLengths() {
+        MiniMessageFlow stageOne = MiniMessageFlow.builder().nativeCompiler(false).build();
+        String[] messages = {
+                "<gradient:red:blue>Welcome %name%!</gradient>",
+                "<gradient:red:blue:green:0.3>%name%</gradient> after",
+                "<rainbow>%name% and <b>%other%</b> end</rainbow>",
+                "<rainbow:!2><i>%name%</i></rainbow>",
+                "<gradient:#ff0000:#0000ff>a%name%b%other%c</gradient>",
+                "<yellow><gradient:red:blue><u>pre </u>%name%</gradient> tail",
+        };
+        String[] names = {"", "S", "Steve", "\u00e9t\u00e9", "a\uD83D\uDE00b", "x".repeat(40), "y".repeat(90), "Steve", "S"};
+        for (String message : messages) {
+            Template template = this.flow.compile(message);
+            assertEquals(Template.Kind.NATIVE, template.kind(), message);
+            Template expected = stageOne.compile(message);
+            // Twice over the same lengths: the second pass reads what the first one kept.
+            for (int pass = 0; pass < 2; pass++) {
+                for (String name : names) {
+                    Placeholder given = Placeholder.of("name", name, "other", "o" + name);
+                    assertEquals(ComponentRuns.of(expected.render(given)), ComponentRuns.of(template.render(given)),
+                            message + " with a name of " + name.length() + " characters, pass " + pass);
+                }
+            }
+        }
+    }
 }

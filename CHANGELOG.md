@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- A gradient or rainbow over a value keeps, for each length it has coloured (up to 63 characters), the colour of
+  each position and the finished characters of the text before the first value and after the last: a render only
+  builds the characters of the values. `<gradient:red:blue>Welcome %name%!`: 532 ns and 2.4 KB to 180 ns and 0.7 KB.
 - `Values`: the values of a render kept in an array and set again for each send, instead of a `Placeholder` built
   each time. Declare the names once (`ValueKey PLAYER = builder.key("player")`), make one `Values` per thread
   (`text.newValues()`), then `values.set(PLAYER, name)` and `template.render(values, viewer)`. It works with every

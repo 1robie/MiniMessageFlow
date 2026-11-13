@@ -148,7 +148,8 @@ final class NativeCompiler {
         /**
          * A gradient or rainbow over text and values, coloured at render.
          */
-        record Transform(@NotNull Style style, @NotNull ColorChange change, @NotNull List<Item> items) implements Part {
+        record Transform(@NotNull Style style, @NotNull ColorChange change, @NotNull List<Item> items,
+                         @NotNull Palettes palettes) implements Part {
         }
     }
 
@@ -355,8 +356,8 @@ final class NativeCompiler {
                     Component base = fallback == null ? Component.translatable(key, with) : Component.translatable(key, fallback, with);
                     out.add(base.style(style).children(rendered));
                 }
-                case Part.Transform(Style style, ColorChange change, List<Item> items) -> {
-                    Component colored = transform(style, change, items, values);
+                case Part.Transform(Style style, ColorChange change, List<Item> items, Palettes palettes) -> {
+                    Component colored = transform(style, change, items, values, palettes);
                     if (colored == null) {
                         return null;
                     }
@@ -437,11 +438,114 @@ final class NativeCompiler {
         @NotNull TextColor next();
     }
 
+    /**
+     * The one-character strings of ASCII, so a gradient makes none for them.
+     */
+    private static final String[] ASCII = new String[128];
+
+    static {
+        for (int i = 0; i < ASCII.length; i++) {
+            ASCII[i] = String.valueOf((char) i);
+        }
+    }
+
+    private static @NotNull String character(int codePoint) {
+        return codePoint < ASCII.length ? ASCII[codePoint] : Character.toString(codePoint);
+    }
+
+    /**
+     * What a gradient or rainbow has already worked out, by the length of what it colours (the colours depend on
+     * nothing else): each position's colour, and the finished characters of the text before the first value and
+     * after the last one, which are at the same positions for a given length. Lengths under {@link #CACHED} are kept.
+     * <p>
+     * Shared by the threads that render: a {@link Palette} is immutable, and two threads may each make the same one.
+     */
+    static final class Palettes {
+        private static final int CACHED = 64;
+
+        /**
+         * The items before the first value, and from the one after the last value on.
+         */
+        private final int lead;
+        private final int trailStart;
+        private final Palette[] byLength = new Palette[CACHED];
+
+        Palettes(@NotNull List<Item> items) {
+            int lead = 0;
+            while (lead < items.size() && items.get(lead).text() != null) {
+                lead++;
+            }
+            int trailStart = items.size();
+            while (trailStart > lead && items.get(trailStart - 1).text() != null) {
+                trailStart--;
+            }
+            this.lead = lead;
+            this.trailStart = trailStart;
+        }
+
+        @NotNull Palette of(@NotNull ColorChange change, @NotNull List<Item> items, int length) {
+            Palette palette = length < CACHED ? this.byLength[length] : null;
+            if (palette == null) {
+                palette = new Palette(change, items, this.lead, this.trailStart, length);
+                if (length < CACHED) {
+                    this.byLength[length] = palette;
+                }
+            }
+            return palette;
+        }
+    }
+
+    /**
+     * For one length: the style that is only each position's colour, and the characters that never change.
+     */
+    static final class Palette {
+        final Style[] colors;
+        final Component[] leading;
+        final Component[] trailing;
+
+        Palette(@NotNull ColorChange change, @NotNull List<Item> items, int lead, int trailStart, int length) {
+            this.colors = new Style[length];
+            Cursor cursor = change.start(length);
+            for (int i = 0; i < length; i++) {
+                this.colors[i] = Style.style(cursor.next());
+            }
+            this.leading = this.characters(items, 0, lead, 0);
+            int trailLength = 0;
+            for (int i = trailStart; i < items.size(); i++) {
+                String text = Objects.requireNonNull(items.get(i).text());
+                trailLength += text.codePointCount(0, text.length());
+            }
+            this.trailing = this.characters(items, trailStart, items.size(), length - trailLength);
+        }
+
+        private @NotNull Component @NotNull [] characters(@NotNull List<Item> items, int from, int to, int position) {
+            List<Component> out = new ArrayList<>();
+            for (int i = from; i < to; i++) {
+                Item item = items.get(i);
+                String text = Objects.requireNonNull(item.text());
+                for (int offset = 0; offset < text.length(); ) {
+                    int codePoint = text.codePointAt(offset);
+                    offset += Character.charCount(codePoint);
+                    out.add(Component.text(character(codePoint), this.style(item.style(), position++)));
+                }
+            }
+            return out.toArray(new Component[0]);
+        }
+
+        @NotNull Style style(@NotNull Style itemStyle, int position) {
+            Style color = this.colors[position];
+            return itemStyle.isEmpty() ? color : itemStyle.color(color.color());
+        }
+    }
+
     private static @Nullable Component transform(@NotNull Style style, @NotNull ColorChange change, @NotNull List<Item> items,
-                                                 @Nullable Component @NotNull [] values) {
-        String[] texts = new String[items.size()];
-        int size = 0;
-        for (int i = 0; i < texts.length; i++) {
+                                                 @Nullable Component @NotNull [] values, @NotNull Palettes palettes) {
+        int lead = palettes.lead;
+        int trailStart = palettes.trailStart;
+        // The values' texts, and the length of everything.
+        String[] texts = trailStart > lead ? new String[trailStart - lead] : null;
+        int length = 0;
+        for (int i = 0; i < items.size(); i++) {
             Item item = items.get(i);
             String text = item.text();
             if (text == null) {
@@ -451,22 +555,27 @@ final class NativeCompiler {
                 }
                 text = component.content();
             }
-            texts[i] = text;
-            size += text.codePointCount(0, text.length());
+            if (i >= lead && i < trailStart) {
+                texts[i - lead] = text;
+            }
+            length += text.codePointCount(0, text.length());
         }
-        Cursor cursor = change.start(size);
-        List<Component> chars = new ArrayList<>(size);
-        int[] holder = new int[1];
-        for (int i = 0; i < texts.length; i++) {
+        Palette palette = palettes.of(change, items, length);
+        Component[] chars = new Component[length];
+        int position = palette.leading.length;
+        System.arraycopy(palette.leading, 0, chars, 0, position);
+        for (int i = lead; i < trailStart; i++) {
             Style itemStyle = items.get(i).style();
-            String text = texts[i];
+            String text = texts[i - lead];
             for (int offset = 0; offset < text.length(); ) {
-                holder[0] = text.codePointAt(offset);
-                offset += Character.charCount(holder[0]);
-                chars.add(Component.text(new String(holder, 0, 1), itemStyle.color(cursor.next())));
+                int codePoint = text.codePointAt(offset);
+                offset += Character.charCount(codePoint);
+                chars[position] = Component.text(character(codePoint), palette.style(itemStyle, position));
+                position++;
             }
         }
-        return Component.text("", style).children(chars);
+        System.arraycopy(palette.trailing, 0, chars, position, palette.trailing.length);
+        return Component.text("", style).children(Arrays.asList(chars));
     }
 
     // --- passes -------------------------------------------------------------------------------------------------
@@ -490,7 +599,8 @@ final class NativeCompiler {
                             parts.add(new Part.Fixed(element.build().style(style)));
                         }
                     } else if (element.change != null) {
-                        parts.add(new Part.Transform(style, element.change, items(element.children, Style.empty())));
+                        List<Item> items = items(element.children, Style.empty());
+                        parts.add(new Part.Transform(style, element.change, items, new Palettes(items)));
                     } else if (element.dynamic instanceof InlineText text) {
                         parts.add(new Part.Hover(style, text, merge(reduce(element.children, Style.empty()))));
                     } else if (element.dynamic instanceof DynamicTranslatable(String key, String fallback, List<Object> arguments)) {
@@ -736,7 +846,8 @@ final class NativeCompiler {
                 return this.fixed;
             }
             if (this.change != null) {
-                Component colored = transform(this.style, this.change, items(this.children, Style.empty()), new Component[0]);
+                List<Item> items = items(this.children, Style.empty());
+                Component colored = transform(this.style, this.change, items, new Component[0], new Palettes(items));
                 if (colored == null) {
                     throw new IllegalStateException("value in a fixed gradient");
                 }
