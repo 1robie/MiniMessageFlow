@@ -297,7 +297,7 @@ public final class Engine {
     /**
      * Renders a native form with inline values, or null when it must go the stage 1 way this time.
      */
-    @Nullable Component renderInline(@NotNull Form.Native form, @Nullable Component @NotNull [] values, @NotNull String @NotNull [] inline) {
+    @Nullable Component renderInline(@NotNull Form.Native form, @Nullable Object @NotNull [] values, @NotNull String @NotNull [] inline) {
         return NativeCompiler.render(form.parts(), values, inline);
     }
 
@@ -359,7 +359,10 @@ public final class Engine {
 
     // --- rendering ----------------------------------------------------------------------------------------------
 
-    @NotNull Component render(@NotNull Form form, @Nullable Component @NotNull [] values) {
+    /**
+     * @param values the value of each slot: a {@code String} (plain text), a {@code Component}, or null for none
+     */
+    @NotNull Component render(@NotNull Form form, @Nullable Object @NotNull [] values) {
         return switch (form) {
             case Form.Static(Component component) -> component;
             case Form.Native(List<NativeCompiler.Part> parts, Form.WithValues fallback) -> {
@@ -367,31 +370,45 @@ public final class Engine {
                 // A gradient over a value with its own style: this render goes through MiniMessage.
                 yield rendered != null ? rendered : this.render(Objects.requireNonNull(fallback, "fallback"), values);
             }
-            case Form.Markers(Component component) -> this.insert(component, values).compact();
-            case Form.WithValues(String text, Set<Integer> unclaimed, Slots slots) -> this.withValues.get(
-                    new ValuesKey(text, unclaimed, Arrays.asList(values.clone())),
-                    key -> this.miniMessage.deserialize(this.legacy(text), new SlotTags(slots, unclaimed, false, values)));
+            case Form.Markers(Component component) -> this.insert(component, components(values)).compact();
+            case Form.WithValues(String text, Set<Integer> unclaimed, Slots slots) -> {
+                Component[] given = components(values);
+                yield this.withValues.get(new ValuesKey(text, unclaimed, Arrays.asList(given)),
+                        key -> this.miniMessage.deserialize(this.legacy(text), new SlotTags(slots, unclaimed, false, given)));
+            }
         };
+    }
+
+    /**
+     * The values as components, for MiniMessage's paths: a copy, text as plain text.
+     */
+    private static @Nullable Component @NotNull [] components(@Nullable Object @NotNull [] values) {
+        Component[] components = new Component[values.length];
+        for (int i = 0; i < values.length; i++) {
+            Object value = values[i];
+            components[i] = value instanceof String text ? Component.text(text) : (Component) value;
+        }
+        return components;
     }
 
     /**
      * The value of a placeholder: the call's value, the call's value with modifiers ({@code %price.comma%}), a
      * resolver's component or text, a resolver's value with modifiers; or null.
      */
-    @Nullable Component value(@NotNull KeyPlan plan, @NotNull Placeholder placeholders, @Nullable Values values,
-                              @Nullable Pointered viewer) {
+    @Nullable Object value(@NotNull KeyPlan plan, @NotNull Placeholder placeholders, @Nullable Values values,
+                           @Nullable Pointered viewer) {
         String key = plan.key;
         String[] bases = plan.bases;
         boolean modifiers = bases.length > 0;
         if (values != null) {
-            Component given = fromValues(plan, values);
+            Object given = fromValues(plan, values);
             if (given != null) {
                 return given;
             }
         }
         PlaceholderValue value = placeholders.get(key);
         if (value != null) {
-            return this.toComponent(key, value, viewer);
+            return value.isComponent() ? this.toComponent(key, value, viewer) : this.plainText(key, value, viewer);
         }
         for (int i = 0; i < bases.length; i++) {
             PlaceholderValue base = placeholders.get(bases[i]);
@@ -400,7 +417,7 @@ public final class Engine {
                 PlaceholderModifiers.Chain chain = plan.chains[i];
                 String text = chain == null ? null : chain.apply(this.plainText(bases[i], base, viewer));
                 if (text != null) {
-                    return Component.text(text);
+                    return text;
                 }
                 break;
             }
@@ -434,7 +451,7 @@ public final class Engine {
                     PlaceholderModifiers.Chain chain = plan.chains[i];
                     String modified = chain == null ? null : chain.apply(text);
                     if (modified != null) {
-                        return component != null ? Component.text(modified) : this.parseResolverText(modified);
+                        return component != null ? modified : this.parseResolverText(modified);
                     }
                     break;
                 }
@@ -447,11 +464,11 @@ public final class Engine {
      * The value {@link Values} has for a key, read by its place: the key itself, else the first base that is set with
      * its modifiers. Null when it has none, or when the modifiers don't apply.
      */
-    private static @Nullable Component fromValues(@NotNull KeyPlan plan, @NotNull Values values) {
+    private static @Nullable Object fromValues(@NotNull KeyPlan plan, @NotNull Values values) {
         if (plan.index >= 0) {
             Object raw = values.raw(plan.index);
             if (raw != null) {
-                return raw instanceof String text ? Component.text(text) : (Component) raw;
+                return raw;
             }
         }
         int[] indexes = plan.baseIndexes;
@@ -460,7 +477,7 @@ public final class Engine {
             if (raw != null) {
                 PlaceholderModifiers.Chain chain = plan.chains[i];
                 String text = chain == null ? null : chain.apply(raw instanceof String string ? string : PLAIN.serialize((Component) raw));
-                return text == null ? null : Component.text(text);
+                return text;
             }
         }
         return null;
@@ -532,8 +549,11 @@ public final class Engine {
     /**
      * The plain text of a value written into a tag argument.
      */
-    static @NotNull String inlineText(@NotNull String key, @Nullable Component value) {
-        return value == null ? "%" + key + "%" : stripTagBreaking(PLAIN.serialize(value));
+    static @NotNull String inlineText(@NotNull String key, @Nullable Object value) {
+        if (value == null) {
+            return "%" + key + "%";
+        }
+        return stripTagBreaking(value instanceof String text ? text : PLAIN.serialize((Component) value));
     }
 
     /**

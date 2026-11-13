@@ -156,14 +156,15 @@ final class CompiledTemplate implements Template {
 
     private @NotNull Component render(@NotNull Placeholder placeholders, @Nullable Values fast, @Nullable Pointered viewer) {
         int size = this.slots.size();
-        Component[] values = new Component[size];
+        // Each a String (plain text), a Component, or null.
+        Object[] values = new Object[size];
         // The values as given (null when there is none), for the other places the same key is written.
-        Component[] given = this.pieces != null || this.repeatedSlots ? new Component[size] : null;
+        Object[] given = this.pieces != null || this.repeatedSlots ? new Object[size] : null;
         Set<Integer> unknown = null;
         for (int slot = 0; slot < size; slot++) {
             String key = this.slots.key(slot);
             int source = this.slotSources[slot];
-            Component value = given != null && source != slot ? given[source] : this.engine.value(this.slotPlans[slot], placeholders, fast, viewer);
+            Object value = given != null && source != slot ? given[source] : this.engine.value(this.slotPlans[slot], placeholders, fast, viewer);
             if (given != null) {
                 given[slot] = value;
             }
@@ -174,7 +175,7 @@ final class CompiledTemplate implements Template {
                     }
                     unknown.add(slot);
                 } else {
-                    value = Component.text("%" + key + "%");
+                    value = "%" + key + "%";
                 }
             }
             values[slot] = value;

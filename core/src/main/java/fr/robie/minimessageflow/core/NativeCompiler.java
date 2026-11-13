@@ -120,8 +120,11 @@ final class NativeCompiler {
 
         /**
          * A click, hover or insertion (with the style around it) over parts that hold values.
+         *
+         * @param shell the component the parts go into, built once: empty text with the style, or the keybind or
+         *              translatable the tag inserts
          */
-        record Group(@NotNull Style style, @NotNull List<Part> parts, @Nullable Component base) implements Part {
+        record Group(@NotNull Style style, @NotNull List<Part> parts, @NotNull Component shell) implements Part {
         }
 
         /**
@@ -168,6 +171,25 @@ final class NativeCompiler {
          * argument without quotes): that render goes the stage 1 way
          */
         @Nullable String render(@NotNull String @NotNull [] inline) {
+            List<Object> pieces = this.pieces;
+            if (pieces.size() <= 2) {
+                // The usual shapes, without a builder: a value alone, or text and a value.
+                String text = "";
+                for (int i = 0; i < pieces.size(); i++) {
+                    Object piece = pieces.get(i);
+                    String part;
+                    if (piece instanceof Inline(int index)) {
+                        part = inline[index];
+                        if (!this.quoted && part.indexOf(':') >= 0) {
+                            return null;
+                        }
+                    } else {
+                        part = (String) piece;
+                    }
+                    text = i == 0 ? part : text.concat(part);
+                }
+                return text;
+            }
             StringBuilder out = new StringBuilder(32);
             for (Object piece : this.pieces) {
                 if (piece instanceof Inline(int index)) {
@@ -279,7 +301,10 @@ final class NativeCompiler {
         return false;
     }
 
-    static @Nullable Component render(@NotNull List<Part> parts, @Nullable Component @NotNull [] values) {
+    /**
+     * @param values the value of each slot: a {@code String} (plain text), a {@code Component}, or null for none
+     */
+    static @Nullable Component render(@NotNull List<Part> parts, @Nullable Object @NotNull [] values) {
         return render(parts, values, NO_INLINE);
     }
 
@@ -287,29 +312,32 @@ final class NativeCompiler {
      * @return the component, or null when a gradient meets a value it can't colour the way MiniMessage does (a value
      * with a style or children): such a render goes through MiniMessage
      */
-    static @Nullable Component render(@NotNull List<Part> parts, @Nullable Component @NotNull [] values, @NotNull String @NotNull [] inline) {
+    static @Nullable Component render(@NotNull List<Part> parts, @Nullable Object @NotNull [] values, @NotNull String @NotNull [] inline) {
         List<Component> children = renderParts(parts, values, inline);
         return children == null ? null : Component.empty().children(children);
     }
 
-    private static @Nullable List<Component> renderParts(@NotNull List<Part> parts, @Nullable Component @NotNull [] values,
+    private static @Nullable List<Component> renderParts(@NotNull List<Part> parts, @Nullable Object @NotNull [] values,
                                                          @NotNull String @NotNull [] inline) {
         List<Component> out = new ArrayList<>(parts.size());
         for (Part part : parts) {
             switch (part) {
                 case Part.Fixed(Component component) -> out.add(component);
                 case Part.Value(int slot, Style style) -> {
-                    Component value = values[slot];
-                    if (value != null) {
-                        out.add(styled(value, style));
+                    Object value = values[slot];
+                    if (value instanceof String text) {
+                        // Text goes straight into its component, with the style around it.
+                        out.add(style.isEmpty() ? Component.text(text) : Component.text(text, style));
+                    } else if (value != null) {
+                        out.add(styled((Component) value, style));
                     }
                 }
-                case Part.Group(Style style, List<Part> children, Component base) -> {
+                case Part.Group(Style style, List<Part> children, Component shell) -> {
                     List<Component> rendered = renderParts(children, values, inline);
                     if (rendered == null) {
                         return null;
                     }
-                    out.add((base == null ? Component.text("", style) : base.style(style)).children(rendered));
+                    out.add(shell.children(rendered));
                 }
                 case Part.Event(Style style, String action, Argument argument, List<Part> children) -> {
                     List<Component> rendered = renderParts(children, values, inline);
@@ -320,17 +348,11 @@ final class NativeCompiler {
                     if (value == null) {
                         return null;
                     }
-                    Style event;
-                    try {
-                        event = action.equals("insert")
-                                ? Style.style().insertion(value).build()
-                                : click(List.of(action, value));
-                    } catch (RuntimeException e) {
-                        // Adventure 5.1+ checks a URL when the event is built: MiniMessage decides what an invalid
-                        // one gives, so this render is its.
+                    Style event = withEvent(style, action, value);
+                    if (event == null) {
                         return null;
                     }
-                    out.add(Component.text("", event.merge(style, Style.Merge.Strategy.IF_ABSENT_ON_TARGET)).children(rendered));
+                    out.add(Component.text("", event).children(rendered));
                 }
                 case Part.Hover(Style style, InlineText text, List<Part> children) -> {
                     List<Component> rendered = renderParts(children, values, inline);
@@ -366,6 +388,29 @@ final class NativeCompiler {
             }
         }
         return out;
+    }
+
+    /**
+     * A style with the click or insertion of an {@link Part.Event} on it.
+     *
+     * @param action the action in lower case, or {@code insert}
+     * @return the style, or null when the event can't be built here: this render is MiniMessage's
+     */
+    private static @Nullable Style withEvent(@NotNull Style style, @NotNull String action, @NotNull String value) {
+        try {
+            return switch (action) {
+                case "insert" -> style.insertion(value);
+                case "run_command" -> style.clickEvent(ClickEvent.runCommand(value));
+                case "suggest_command" -> style.clickEvent(ClickEvent.suggestCommand(value));
+                case "open_url" -> style.clickEvent(ClickEvent.openUrl(value));
+                case "copy_to_clipboard" -> style.clickEvent(ClickEvent.copyToClipboard(value));
+                default -> click(List.of(action, value)).merge(style, Style.Merge.Strategy.IF_ABSENT_ON_TARGET);
+            };
+        } catch (RuntimeException e) {
+            // Adventure 5.1+ checks a URL when the event is built, and a page must be a number: MiniMessage
+            // decides what an invalid one gives.
+            return null;
+        }
     }
 
     /**
@@ -469,8 +514,13 @@ final class NativeCompiler {
         private final int lead;
         private final int trailStart;
         private final Palette[] byLength = new Palette[CACHED];
+        /**
+         * The component the characters go into, with the style around the gradient.
+         */
+        private final Component shell;
 
-        Palettes(@NotNull List<Item> items) {
+        Palettes(@NotNull List<Item> items, @NotNull Style style) {
+            this.shell = Component.text("", style);
             int lead = 0;
             while (lead < items.size() && items.get(lead).text() != null) {
                 lead++;
@@ -539,7 +589,7 @@ final class NativeCompiler {
     }
 
     private static @Nullable Component transform(@NotNull Style style, @NotNull ColorChange change, @NotNull List<Item> items,
-                                                 @Nullable Component @NotNull [] values, @NotNull Palettes palettes) {
+                                                 @Nullable Object @NotNull [] values, @NotNull Palettes palettes) {
         int lead = palettes.lead;
         int trailStart = palettes.trailStart;
         // The values' texts, and the length of everything.
@@ -549,11 +599,14 @@ final class NativeCompiler {
             Item item = items.get(i);
             String text = item.text();
             if (text == null) {
-                Component value = values[item.slot()];
-                if (!(value instanceof TextComponent component) || !value.style().isEmpty() || !value.children().isEmpty()) {
+                Object value = values[item.slot()];
+                if (value instanceof String string) {
+                    text = string;
+                } else if (value instanceof TextComponent component && component.style().isEmpty() && component.children().isEmpty()) {
+                    text = component.content();
+                } else {
                     return null;
                 }
-                text = component.content();
             }
             if (i >= lead && i < trailStart) {
                 texts[i - lead] = text;
@@ -575,7 +628,7 @@ final class NativeCompiler {
             }
         }
         System.arraycopy(palette.trailing, 0, chars, position, palette.trailing.length);
-        return Component.text("", style).children(Arrays.asList(chars));
+        return palettes.shell.children(Arrays.asList(chars));
     }
 
     // --- passes -------------------------------------------------------------------------------------------------
@@ -600,16 +653,18 @@ final class NativeCompiler {
                         }
                     } else if (element.change != null) {
                         List<Item> items = items(element.children, Style.empty());
-                        parts.add(new Part.Transform(style, element.change, items, new Palettes(items)));
+                        parts.add(new Part.Transform(style, element.change, items, new Palettes(items, style)));
                     } else if (element.dynamic instanceof InlineText text) {
                         parts.add(new Part.Hover(style, text, merge(reduce(element.children, Style.empty()))));
                     } else if (element.dynamic instanceof DynamicTranslatable(String key, String fallback, List<Object> arguments)) {
                         parts.add(new Part.Translatable(style, key, fallback, arguments, merge(reduce(element.children, Style.empty()))));
                     } else if (element.action != null) {
-                        parts.add(new Part.Event(style, element.action, element.argument, merge(reduce(element.children, Style.empty()))));
+                        parts.add(new Part.Event(style, element.action.toLowerCase(Locale.ROOT), element.argument,
+                                merge(reduce(element.children, Style.empty()))));
                     } else if (hasEvents(element.style) || element.base != null) {
                         // An event stays on its parent; a keybind or translatable wraps what follows it.
-                        parts.add(new Part.Group(style, merge(reduce(element.children, Style.empty())), element.base));
+                        parts.add(new Part.Group(style, merge(reduce(element.children, Style.empty())),
+                                element.base == null ? Component.text("", style) : element.base.style(style)));
                     } else {
                         parts.addAll(reduce(element.children, style));
                     }
@@ -847,7 +902,7 @@ final class NativeCompiler {
             }
             if (this.change != null) {
                 List<Item> items = items(this.children, Style.empty());
-                Component colored = transform(this.style, this.change, items, new Component[0], new Palettes(items));
+                Component colored = transform(this.style, this.change, items, new Component[0], new Palettes(items, this.style));
                 if (colored == null) {
                     throw new IllegalStateException("value in a fixed gradient");
                 }

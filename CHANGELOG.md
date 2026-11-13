@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- A render builds less besides its result: a text value goes straight into its component (and into a click's or
+  a hover's argument) instead of through a component of its own, the component a group or a gradient puts its
+  content in is built when the message is compiled, and a click with a value is set on the style around it
+  instead of merged into it. A click with a value in its command: 377 ns and 1.6 KB to 108 ns and 0.8 KB; three
+  values and a click: 162 ns and 680 B to 129 ns and 608 B.
 - A gradient or rainbow over a value keeps, for each length it has coloured (up to 63 characters), the colour of
   each position and the finished characters of the text before the first value and after the last: a render only
   builds the characters of the values. `<gradient:red:blue>Welcome %name%!`: 532 ns and 2.4 KB to 180 ns and 0.7 KB.
