@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.1.0
 
 - The parts of a natively compiled message that never change are compacted when it is compiled: the component a
   render gives has fewer components in it (a static line of three coloured words and a bold one: 12 to 8), for the
