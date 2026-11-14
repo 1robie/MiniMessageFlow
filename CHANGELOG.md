@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- The parts of a natively compiled message that never change are compacted when it is compiled: the component a
+  render gives has fewer components in it (a static line of three coloured words and a bold one: 12 to 8), for the
+  same render cost.
 - A component value that comes again at the same place of a message (a resolver's text, which is parsed once and
   kept; a component the caller keeps) is put under the style around it once, not at each render.
   `<gray>[%server%] <white>%name%` with `%server%` from a resolver, on Adventure 4.17: 150 ns and 824 B to 72 ns

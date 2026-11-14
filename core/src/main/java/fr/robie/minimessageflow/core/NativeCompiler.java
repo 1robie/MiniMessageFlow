@@ -777,7 +777,8 @@ final class NativeCompiler {
         if (run.isEmpty()) {
             return;
         }
-        merged.add(new Part.Fixed(run.size() == 1 ? run.getFirst() : Component.empty().children(run)));
+        // Compacted here, once: what a render takes as it is has no component more than it needs.
+        merged.add(new Part.Fixed((run.size() == 1 ? run.getFirst() : Component.empty().children(run)).compact()));
         run.clear();
     }
 
