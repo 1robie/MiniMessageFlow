@@ -94,14 +94,32 @@ final class NativeCompiler {
      */
     static @Nullable List<Part> compile(@NotNull String text, @NotNull TagResolver standard, @Nullable TagResolver userTags, @NotNull ModifierSet modifiers,
                                         @NotNull Engine.Slots slots, @NotNull Set<Integer> unclaimed, boolean discover) {
+        return compile(text, standard, userTags, modifiers, slots, unclaimed, discover, null);
+    }
+
+    /**
+     * @param reason where the reason is put (at 0) when this returns null; may be null
+     */
+    static @Nullable List<Part> compile(@NotNull String text, @NotNull TagResolver standard, @Nullable TagResolver userTags, @NotNull ModifierSet modifiers,
+                                        @NotNull Engine.Slots slots, @NotNull Set<Integer> unclaimed, boolean discover,
+                                        @Nullable String @Nullable [] reason) {
+        NativeCompiler compiler = new NativeCompiler(standard, userTags, modifiers, slots, unclaimed, discover);
         try {
-            NativeCompiler compiler = new NativeCompiler(standard, userTags, modifiers, slots, unclaimed, discover);
             Element root = compiler.parse(text, true);
             return merge(reduce(root.children, Style.empty()));
         } catch (Unsupported e) {
+            if (reason != null) {
+                reason[0] = compiler.reason != null ? "the tag " + compiler.reason
+                        : "text or tags the native compiler leaves to MiniMessage";
+            }
             return null;
         }
     }
+
+    /**
+     * The tag being read when the message was given up, as written.
+     */
+    private @Nullable String reason;
 
     // --- parts and rendering ------------------------------------------------------------------------------------
 
@@ -1124,7 +1142,14 @@ final class NativeCompiler {
                 Tag tag = readTag(text, i);
                 if (tag != null) {
                     flush(pending, open.peek());
-                    this.handle(tag, text, open, pending, slotsAllowed);
+                    try {
+                        this.handle(tag, text, open, pending, slotsAllowed);
+                    } catch (Unsupported e) {
+                        if (this.reason == null) {
+                            this.reason = "<" + tag.name() + ">"; // by name: the text here has slot tags and markers in it
+                        }
+                        throw e;
+                    }
                     i = tag.end();
                     continue;
                 }

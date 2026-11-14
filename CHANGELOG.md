@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- `Template.fallbackReason()`: for a `MARKERS` or `PARSED` message, why it is not compiled natively: the tag left
+  to MiniMessage (`the tag <selector>`), that the native result differed from MiniMessage's, or that the native
+  compiler is off. Null for a `STATIC` or `NATIVE` message.
 - `constant(key, text)` and `constant(key, component)` on the builder: a value that never changes for the instance
   (`%prefix%`, `%server%`), formatted once on its own as a resolver's text is. A message whose only placeholders
   are constants is rendered when it is compiled and is `STATIC` (every render returns the same component, 0 B);

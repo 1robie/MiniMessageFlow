@@ -168,7 +168,8 @@ public final class Engine {
         });
         List<Object> pieces = inlineKeys.isEmpty() ? null : pieces(tagged);
         String compiled = pieces == null ? tagged : join(pieces, new String[inlineKeys.size()]);
-        Template compiledNatively = this.compileNatively(source, tagged, compiled, slots, pieces, inlineKeys);
+        String[] reason = new String[1];
+        Template compiledNatively = this.compileNatively(source, tagged, compiled, slots, pieces, inlineKeys, reason);
         if (compiledNatively != null) {
             return compiledNatively;
         }
@@ -176,7 +177,7 @@ public final class Engine {
         Form base = this.compileForm(compiled, slots, Set.of(), true);
         slots.freeze();
         Form.Native inline = pieces == null ? null : this.compileInline(tagged, pieces, inlineKeys.size(), slots);
-        return new CompiledTemplate(this, source, compiled, slots, pieces, List.copyOf(inlineKeys), base, inline);
+        return new CompiledTemplate(this, source, compiled, slots, pieces, List.copyOf(inlineKeys), base, inline, reason[0]);
     }
 
     /**
@@ -188,16 +189,19 @@ public final class Engine {
      * @return the template, or null when the message needs the MiniMessage path
      */
     private @Nullable Template compileNatively(@NotNull String source, @NotNull String tagged, @NotNull String compiled,
-                                               @NotNull Slots slots, @Nullable List<Object> pieces, @NotNull List<String> inlineKeys) {
+                                               @NotNull Slots slots, @Nullable List<Object> pieces, @NotNull List<String> inlineKeys,
+                                               @Nullable String @NotNull [] reason) {
         if (!this.nativeCompiler) {
+            reason[0] = "the native compiler is off";
             return null;
         }
         Slots trial = slots.copy();
         List<NativeCompiler.Part> parts = NativeCompiler.compile(this.legacy(tagged), StandardTags.defaults(), this.userTags, this.modifiers,
-                trial, Set.of(), true);
+                trial, Set.of(), true, reason);
         if (parts == null) {
             return null;
         }
+        reason[0] = "the native result differs from MiniMessage's";
         trial.freeze();
         if (this.verifyNative) {
             boolean transform = NativeCompiler.hasTransform(parts);
@@ -217,12 +221,12 @@ public final class Engine {
         List<String> inlineKeysCopy = List.copyOf(inlineKeys);
         if (pieces != null) {
             Form.Native inline = new Form.Native(parts, null);
-            return new CompiledTemplate(this, source, compiled, trial, pieces, inlineKeysCopy, inline, inline);
+            return new CompiledTemplate(this, source, compiled, trial, pieces, inlineKeysCopy, inline, inline, null);
         }
         Form base = trial.size() == 0
                 ? new Form.Static(Objects.requireNonNull(NativeCompiler.render(parts, new Component[0])))
                 : new Form.Native(parts, new Form.WithValues(compiled, Set.of(), trial));
-        return new CompiledTemplate(this, source, compiled, trial, null, inlineKeysCopy, base, null);
+        return new CompiledTemplate(this, source, compiled, trial, null, inlineKeysCopy, base, null, null);
     }
 
     @NotNull Form compileForm(@NotNull String text, @NotNull Slots slots, @NotNull Set<Integer> unclaimed, boolean discover) {

@@ -650,4 +650,17 @@ class EngineTest {
         assertEquals(ComponentRuns.of(MiniMessage.miniMessage().deserialize("<gold>[Shop]</gold> plain")),
                 ComponentRuns.of(flow.compile("%prefix% plain").render()));
     }
+
+    @Test
+    @DisplayName("A message that is not native tells why")
+    void fallbackReason() {
+        assertNull(this.flow.compile("<green>hi").fallbackReason());
+        assertNull(this.flow.compile("<red>%a%").fallbackReason());
+        assertNull(this.flow.compile("<hover:show_text:'%a%'>x").fallbackReason());
+        assertEquals("the tag <selector>", this.flow.compile("<red>hi <selector:@p> %a%").fallbackReason());
+        assertEquals("the tag <hover>", this.flow.compile("<hover:show_text:'<rainbow>%a%'>x").fallbackReason());
+        assertNotNull(this.flow.compile("a < b > %c%").fallbackReason());
+        assertEquals("the native compiler is off",
+                MiniMessageFlow.builder().nativeCompiler(false).build().compile("Hi %name%").fallbackReason());
+    }
 }

@@ -59,6 +59,15 @@ public interface Template {
     @NotNull Kind kind();
 
     /**
+     * Why this message is not compiled natively, for a {@link Kind#MARKERS} or {@link Kind#PARSED} message: the tag
+     * that is left to MiniMessage as it is written, or what else stood in the way. Null for a {@link Kind#STATIC}
+     * or {@link Kind#NATIVE} message. A hint to find the messages worth rewriting; the wording may change.
+     */
+    default @Nullable String fallbackReason() {
+        return null;
+    }
+
+    /**
      * The placeholders of the message, each once, as a render asks for them: {@code item} for {@code %item%} or
      * {@code <item>}, {@code price.comma} for {@code %price.comma%} or {@code <price:comma>}. Every {@code <name>}
      * that is not a tag is one, so a misspelt tag shows here too: compare with the keys you give to find typos.

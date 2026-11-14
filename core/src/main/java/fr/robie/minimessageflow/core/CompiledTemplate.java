@@ -56,6 +56,10 @@ final class CompiledTemplate implements Template {
     private final @Nullable Engine.Form.Native inline;
     private final boolean isStatic;
     /**
+     * Why the native compiler gave the message up, when it did.
+     */
+    private final @Nullable String reason;
+    /**
      * What every render gives, when nothing in the message changes: no placeholder, or only constants.
      */
     private final @Nullable Component fixed;
@@ -65,7 +69,8 @@ final class CompiledTemplate implements Template {
 
     CompiledTemplate(@NotNull Engine engine, @NotNull String source, @NotNull String compiled, @NotNull Engine.Slots slots,
                      @Nullable List<Object> pieces, @NotNull List<String> inlineKeys, @NotNull Engine.Form base,
-                     @Nullable Engine.Form.Native inline) {
+                     @Nullable Engine.Form.Native inline, @Nullable String reason) {
+        this.reason = reason;
         this.engine = engine;
         this.source = source;
         this.compiled = compiled;
@@ -147,6 +152,11 @@ final class CompiledTemplate implements Template {
     @Override
     public @NotNull Kind kind() {
         return this.kind;
+    }
+
+    @Override
+    public @Nullable String fallbackReason() {
+        return this.kind == Kind.MARKERS || this.kind == Kind.PARSED ? this.reason : null;
     }
 
     @Override
