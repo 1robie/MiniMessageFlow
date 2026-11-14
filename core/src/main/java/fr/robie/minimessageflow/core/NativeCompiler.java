@@ -133,7 +133,7 @@ final class NativeCompiler {
         /**
          * A slot's value, with the colours and decorations around it.
          */
-        record Value(int slot, @NotNull Style style) implements Part {
+        record Value(int slot, @NotNull Style style, @NotNull Styled styled) implements Part {
         }
 
         /**
@@ -345,13 +345,13 @@ final class NativeCompiler {
         for (Part part : parts) {
             switch (part) {
                 case Part.Fixed(Component component) -> out.add(component);
-                case Part.Value(int slot, Style style) -> {
+                case Part.Value(int slot, Style style, Styled memo) -> {
                     Object value = values[slot];
                     if (value instanceof String text) {
                         // Text goes straight into its component, with the style around it.
                         out.add(style.isEmpty() ? Component.text(text) : Component.text(text, style));
                     } else if (value != null) {
-                        out.add(styled((Component) value, style));
+                        out.add(style.isEmpty() ? (Component) value : memo.apply((Component) value, style));
                     }
                 }
                 case Part.Group(Style style, List<Part> children, Component shell) -> {
@@ -410,6 +410,37 @@ final class NativeCompiler {
             }
         }
         return out;
+    }
+
+    /**
+     * Remembers, for one place in a message, the last component value put under its style, when the same component
+     * comes again: a resolver's text (parsed once and kept), a constant, a component kept by the caller. Such a
+     * value is then not styled again on each render.
+     * <p>
+     * Shared by the threads that render. A {@link Kept} is immutable; two threads may each make one, and either is
+     * right. A value is only kept the second time it is seen in a row, so values that change at each render cost
+     * nothing more than a field written.
+     */
+    static final class Styled {
+        private record Kept(@NotNull Component value, @NotNull Component styled) {
+        }
+
+        private @Nullable Component seen;
+        private @Nullable Kept kept;
+
+        @NotNull Component apply(@NotNull Component value, @NotNull Style style) {
+            Kept kept = this.kept;
+            if (kept != null && kept.value() == value) {
+                return kept.styled();
+            }
+            Component styled = styled(value, style);
+            if (this.seen == value) {
+                this.kept = new Kept(value, styled);
+            } else {
+                this.seen = value;
+            }
+            return styled;
+        }
     }
 
     /**
@@ -665,7 +696,7 @@ final class NativeCompiler {
             switch (node) {
                 case Node.Text(String text) -> parts.add(new Part.Fixed(Component.text(text, inherited)));
                 case Node.Insert(Component component) -> parts.add(new Part.Fixed(styled(component, inherited)));
-                case Node.Slot(int slot) -> parts.add(new Part.Value(slot, inherited));
+                case Node.Slot(int slot) -> parts.add(new Part.Value(slot, inherited, new Styled()));
                 case Node.InlineText ignored -> throw unsupported(); // only in a tag argument, never reduced
                 case Element element -> {
                     Style style = element.style.merge(inherited, Style.Merge.Strategy.IF_ABSENT_ON_TARGET);

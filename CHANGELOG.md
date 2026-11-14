@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- A component value that comes again at the same place of a message (a resolver's text, which is parsed once and
+  kept; a component the caller keeps) is put under the style around it once, not at each render.
+  `<gray>[%server%] <white>%name%` with `%server%` from a resolver, on Adventure 4.17: 150 ns and 824 B to 72 ns
+  and 288 B.
 - `Template.fallbackReason()`: for a `MARKERS` or `PARSED` message, why it is not compiled natively: the tag left
   to MiniMessage (`the tag <selector>`), that the native result differed from MiniMessage's, or that the native
   compiler is off. Null for a `STATIC` or `NATIVE` message.
