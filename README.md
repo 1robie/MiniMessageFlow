@@ -6,7 +6,7 @@ once and renders it in nanoseconds. It runs on Adventure 4.17 (Paper 1.20.6) to 
 dependency besides Adventure.
 
 It is the formatting engine of MessageFlow 1.2, tested on Paper 1.20.6, 1.21 and 26. Version 1.0.0
-([changelog](CHANGELOG.md), [how it was built](docs/PLAN.md)).
+([changelog](CHANGELOG.md)).
 
 ## Install
 
@@ -206,8 +206,7 @@ Needs a JDK 21 for the toolchain; Gradle itself runs on 17+.
 ./gradlew :benchmarks:jmh -Pjmh.includes=Template
 ```
 
-`.github/workflows/build.yml` runs `build` on 4.17.0, 4.26.1, 5.0.1, 5.1.1 and 5.2.0 (not run yet: the repository
-has no remote).
+`.github/workflows/build.yml` runs `build` on 4.17.0, 4.26.1, 5.0.1, 5.1.1 and 5.2.0 at each push.
 
 JitPack builds a tag with `./gradlew build publishToMavenLocal`: the tests run (on Adventure 4.17.0) before the jar is
 published. [CONTRIBUTING.md](CONTRIBUTING.md) has the release checklist.
@@ -217,7 +216,6 @@ published. [CONTRIBUTING.md](CONTRIBUTING.md) has the release checklist.
 - No Adventure API that differs between versions outside `compat/`: `core` asks `AdventureBridges.current()`.
   The version matrix enforces it (a missing or deprecated API fails compilation, `-Werror`).
 - A deliberate behaviour change edits `FormattingContract` in the same commit.
-- [docs/PLAN.md](docs/PLAN.md) records each stage, its numbers, and what was not done.
 
 ## License
 
