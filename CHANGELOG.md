@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- `constant(key, text)` and `constant(key, component)` on the builder: a value that never changes for the instance
+  (`%prefix%`, `%server%`), formatted once on its own as a resolver's text is. A message whose only placeholders
+  are constants is rendered when it is compiled and is `STATIC` (every render returns the same component, 0 B);
+  in other messages a constant is read without a lookup. A value given to a render for a constant's key is ignored.
+- A natively compiled message made of one part is that part, without an empty component around it.
 - A message MiniMessage parsed with markers (a tag the native compiler leaves to it: `<selector>`, `<score>`, a
   user tag...) is prepared once: a render copies only the components above a value and no longer walks the whole
   tree or compacts it. `<selector:@p> %item% <score:steve:kills> %price%`: 684 ns and 2.1 KB to 138 ns and 0.8 KB.

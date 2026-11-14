@@ -74,6 +74,8 @@ Component once = text.format("<red>Hello %name%", Placeholder.of("name", "Steve"
   a `Values` kept between sends, instead of building a `Placeholder` each time:
   `ValueKey PLAYER = builder.key("player")` on the builder, `Values values = text.newValues()` (one per thread, not
   thread-safe), then `values.set(PLAYER, name)` and `template.render(values, player)`.
+- **Constants**: `constant("prefix", "<gold>[Shop]")` on the builder, for what never changes. A message with only
+  constants is rendered once, when it is compiled.
 - **Resolvers** give the values a call doesn't: global placeholders, PlaceholderAPI... Their text is formatted, and
   read on its own: its colours and unclosed tags end with it. A resolver can also give a component
   (`resolveComponent`, asked first), inserted as it is and never parsed.

@@ -120,6 +120,23 @@ public class FastMiniMessageBenchmark {
         return this.flowThree.render(threeValues());
     }
 
+    private final MiniMessageFlow.Builder keyed = MiniMessageFlow.builder();
+    private final fr.robie.minimessageflow.ValueKey itemKey = this.keyed.key("item");
+    private final fr.robie.minimessageflow.ValueKey priceKey = this.keyed.key("price");
+    private final fr.robie.minimessageflow.ValueKey nKey = this.keyed.key("n");
+    private final MiniMessageFlow keyedFlow = this.keyed.build();
+    private final Template flowThreeKeyed = this.keyedFlow.compile("<green>%item%</green> for <gold>%price%</gold> <click:run_command:'/buy 42'>[Buy %n%]");
+    private final fr.robie.minimessageflow.Values values = this.keyedFlow.newValues();
+
+    /**
+     * The values set for each send in a {@code Values} kept between sends: the counterpart of {@link #fastThreeSet}.
+     */
+    @Benchmark
+    public Component flowThreeSet() {
+        this.values.set(this.itemKey, "Sword").set(this.priceKey, "1,250").set(this.nKey, "1");
+        return this.flowThreeKeyed.render(this.values);
+    }
+
     @Benchmark
     public Component fastGradient() {
         return this.fastGradient.render(this.scope);

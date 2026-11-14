@@ -610,4 +610,44 @@ class EngineTest {
             }
         }
     }
+
+    @Test
+    @DisplayName("A constant is formatted once; a message with only constants is static")
+    void constants() {
+        MiniMessageFlow flow = MiniMessageFlow.builder()
+                .constant("prefix", "<gold>[Shop]")
+                .constant("server", "lobby")
+                .constant("star", Component.text("*", NamedTextColor.YELLOW))
+                .build();
+        // The same values from a resolver: what a constant must show.
+        MiniMessageFlow resolved = MiniMessageFlow.builder()
+                .resolver(Resolver.of(Placeholder.builder().register("prefix", "<gold>[Shop]").register("server", "lobby")
+                        .register("star", Component.text("*", NamedTextColor.YELLOW)).build()))
+                .build();
+        String[] onlyConstants = {
+                "%prefix% Welcome to <b>%server%</b> %star%",
+                "<prefix> <green>ok <server:upper>",
+                "<click:run_command:'/server %server%'>[%server.upper%]</click>",
+                "<hover:show_text:'on %server%'>%prefix%</hover>",
+                "<gradient:red:blue>%server%</gradient>",
+        };
+        for (String message : onlyConstants) {
+            Template template = flow.compile(message);
+            assertEquals(Template.Kind.STATIC, template.kind(), message);
+            assertTrue(template.isStatic(), message);
+            assertSame(template.render(), template.render(Placeholder.of("server", "other")), message);
+            assertEquals(ComponentRuns.of(resolved.compile(message).render()), ComponentRuns.of(template.render()), message);
+        }
+        // With another placeholder the message still changes, and the constants are read without a lookup.
+        for (String message : new String[]{"%prefix% Hi %name% on %server.upper%", "<prefix> <name>",
+                "<click:run_command:'/tp %name% %server%'>%star%</click>", "%prefix% %server.nosuch% %name%"}) {
+            Template template = flow.compile(message);
+            assertFalse(template.isStatic(), message);
+            Placeholder name = Placeholder.of("name", "Steve");
+            assertEquals(ComponentRuns.of(resolved.compile(message).render(name)), ComponentRuns.of(template.render(name)), message);
+        }
+        // The colour of a constant's text ends with it.
+        assertEquals(ComponentRuns.of(MiniMessage.miniMessage().deserialize("<gold>[Shop]</gold> plain")),
+                ComponentRuns.of(flow.compile("%prefix% plain").render()));
+    }
 }

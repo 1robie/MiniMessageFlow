@@ -45,7 +45,7 @@ public final class MiniMessageFlow {
         this.keys = builder.keys.build();
         this.engine = new Engine(builder.legacyCodes, builder.resolvers, builder.tags, builder.valueCacheSize,
                 builder.nativeCompiler, builder.verifyNative, builder.caches, builder.errors, builder.modifiers.build(),
-                builder.bareHexColors, builder.keys.build());
+                builder.bareHexColors, builder.keys.build(), builder.constants);
         this.templates = builder.caches.create(CacheFactory.Kind.TEMPLATES, builder.templateCacheSize);
     }
 
@@ -162,6 +162,7 @@ public final class MiniMessageFlow {
         private @Nullable BiConsumer<String, Throwable> errors;
         private final ModifierSet.Builder modifiers = ModifierSet.builder();
         private final ValueKeys.Builder keys = ValueKeys.builder();
+        private final Map<String, Object> constants = new LinkedHashMap<>();
         private boolean bareHexColors = true;
 
         private Builder() {
@@ -271,6 +272,30 @@ public final class MiniMessageFlow {
          */
         public @NotNull Builder errorHandler(@NotNull BiConsumer<String, Throwable> handler) {
             this.errors = Objects.requireNonNull(handler, "handler cannot be null");
+            return this;
+        }
+
+        /**
+         * A value that never changes for this instance ({@code %prefix%}, {@code %server%}): formatted once, and
+         * known when a message is compiled. A message whose only placeholders are constants is rendered once and
+         * is {@link Template.Kind#STATIC}. The text is formatted (MiniMessage and legacy codes are read) on its
+         * own, as a resolver's text: its colours end with it.
+         * <p>
+         * A constant is not asked again: a value given to a render for the same key is ignored. For a value that
+         * can change, use a {@link Resolver}.
+         *
+         * @param key the placeholder's name, without {@code %} or modifiers
+         */
+        public @NotNull Builder constant(@NotNull String key, @NotNull String text) {
+            this.constants.put(Objects.requireNonNull(key, "key cannot be null"), Objects.requireNonNull(text, "text cannot be null"));
+            return this;
+        }
+
+        /**
+         * As {@link #constant(String, String)}, with a component inserted as it is.
+         */
+        public @NotNull Builder constant(@NotNull String key, @NotNull net.kyori.adventure.text.ComponentLike component) {
+            this.constants.put(Objects.requireNonNull(key, "key cannot be null"), component.asComponent());
             return this;
         }
 

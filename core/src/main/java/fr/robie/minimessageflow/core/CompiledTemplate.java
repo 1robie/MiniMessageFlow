@@ -55,6 +55,10 @@ final class CompiledTemplate implements Template {
      */
     private final @Nullable Engine.Form.Native inline;
     private final boolean isStatic;
+    /**
+     * What every render gives, when nothing in the message changes: no placeholder, or only constants.
+     */
+    private final @Nullable Component fixed;
     private final Kind kind;
     private final List<String> placeholders;
     private final ConcurrentHashMap<Set<Integer>, Engine.Form> variants = new ConcurrentHashMap<>();
@@ -87,8 +91,23 @@ final class CompiledTemplate implements Template {
         }
         this.base = base;
         this.inline = inline;
-        this.isStatic = pieces == null && slots.size() == 0 && base instanceof Engine.Form.Static;
-        if (pieces != null) {
+        boolean constant = this.slotPlans.length + this.inlinePlans.length > 0;
+        for (Engine.KeyPlan plan : this.slotPlans) {
+            constant &= plan.constant != null;
+        }
+        for (Engine.KeyPlan plan : this.inlinePlans) {
+            constant &= plan.constant != null;
+        }
+        if (constant) {
+            // Every placeholder is a constant of the instance: rendered here, once.
+            this.fixed = this.render(Placeholder.empty(), null, null);
+        } else {
+            this.fixed = pieces == null && slots.size() == 0 && base instanceof Engine.Form.Static(Component component) ? component : null;
+        }
+        this.isStatic = this.fixed != null;
+        if (this.fixed != null) {
+            this.kind = Kind.STATIC;
+        } else if (pieces != null) {
             this.kind = inline != null ? Kind.NATIVE : Kind.PARSED;
         } else {
             this.kind = switch (base) {
@@ -137,8 +156,8 @@ final class CompiledTemplate implements Template {
 
     @Override
     public @NotNull Component render(@NotNull Placeholder placeholders, @Nullable Pointered viewer) {
-        if (this.isStatic) {
-            return ((Engine.Form.Static) this.base).component();
+        if (this.fixed != null) {
+            return this.fixed;
         }
         return this.render(placeholders, null, viewer);
     }
@@ -148,8 +167,8 @@ final class CompiledTemplate implements Template {
         if (values.keys() != this.engine.keys()) {
             throw new IllegalArgumentException("these values were made by another MiniMessageFlow");
         }
-        if (this.isStatic) {
-            return ((Engine.Form.Static) this.base).component();
+        if (this.fixed != null) {
+            return this.fixed;
         }
         return this.render(Placeholder.empty(), values, viewer);
     }

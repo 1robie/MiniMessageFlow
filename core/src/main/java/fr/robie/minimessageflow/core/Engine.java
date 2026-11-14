@@ -88,6 +88,10 @@ public final class Engine {
     private final ModifierSet modifiers;
     private final boolean bareHex;
     private final ValueKeys keys;
+    /**
+     * The values that never change for this instance, by key, formatted once.
+     */
+    private final Map<String, Component> constants;
 
     /**
      * @param legacyCodes whether {@code &c}, {@code §c}, {@code #rrggbb}... are read
@@ -102,11 +106,13 @@ public final class Engine {
      * @param modifiers      the modifiers of placeholders
      * @param bareHex        whether a {@code #rrggbb} without {@code &} is a colour (with legacy codes on)
      * @param keys           the keys declared for {@link Values}
+     * @param constants      the values that never change, by key: formatted text ({@code String}) or a
+     *                       {@code Component}
      */
     public Engine(boolean legacyCodes, @NotNull List<Resolver> resolvers, @Nullable TagResolver userTags, int cacheSize,
                   boolean nativeCompiler, boolean verifyNative, @NotNull CacheFactory caches,
                   @NotNull BiConsumer<String, Throwable> errors, @NotNull ModifierSet modifiers, boolean bareHex,
-                  @NotNull ValueKeys keys) {
+                  @NotNull ValueKeys keys, @NotNull Map<String, Object> constants) {
         this.keys = keys;
         this.errors = errors;
         this.modifiers = modifiers;
@@ -130,6 +136,11 @@ public final class Engine {
         this.resolverTexts = caches.create(CacheFactory.Kind.RESOLVER_TEXTS, cacheSize);
         this.withValues = caches.create(CacheFactory.Kind.PARSED_WITH_VALUES, cacheSize);
         this.inlineForms = caches.create(CacheFactory.Kind.INLINE_TEXTS, cacheSize);
+        Map<String, Component> formatted = new HashMap<>();
+        constants.forEach((key, value) -> formatted.put(key, value instanceof Component component ? component
+                // Text is read on its own, as a resolver's: its colours end with it.
+                : this.miniMessage.deserialize(this.legacy(stripNoncharacters((String) value)))));
+        this.constants = Map.copyOf(formatted);
     }
 
     public void clearCache() {
@@ -397,6 +408,9 @@ public final class Engine {
      */
     @Nullable Object value(@NotNull KeyPlan plan, @NotNull Placeholder placeholders, @Nullable Values values,
                            @Nullable Pointered viewer) {
+        if (plan.constant != null) {
+            return plan.constant;
+        }
         String key = plan.key;
         String[] bases = plan.bases;
         boolean modifiers = bases.length > 0;
@@ -506,9 +520,15 @@ public final class Engine {
          */
         final int index;
         final int[] baseIndexes;
+        /**
+         * The value, when it never changes ({@code constant} on the builder): a {@code Component}, or the
+         * {@code String} its modifiers give. Nothing else is asked then.
+         */
+        final @Nullable Object constant;
 
         private KeyPlan(@NotNull String key, @NotNull String @NotNull [] bases, @Nullable PlaceholderModifiers.Chain @NotNull [] chains,
-                        @NotNull ValueKeys keys) {
+                        @NotNull ValueKeys keys, @NotNull Map<String, Component> constants) {
+            this.constant = constant(key, bases, chains, constants);
             this.key = key;
             this.bases = bases;
             this.chains = chains;
@@ -520,6 +540,24 @@ public final class Engine {
         }
     }
 
+    private static @Nullable Object constant(@NotNull String key, @NotNull String @NotNull [] bases,
+                                             @Nullable PlaceholderModifiers.Chain @NotNull [] chains,
+                                             @NotNull Map<String, Component> constants) {
+        Component exact = constants.get(key);
+        if (exact != null) {
+            return exact;
+        }
+        for (int i = 0; i < bases.length; i++) {
+            Component base = constants.get(bases[i]);
+            if (base != null) {
+                // With modifiers a constant is its plain text, as any component is. A modifier that does not apply
+                // leaves the placeholder to the usual path, which shows it as written.
+                return chains[i] == null ? null : chains[i].apply(PLAIN.serialize(base));
+            }
+        }
+        return null;
+    }
+
     @NotNull KeyPlan plan(@NotNull String key) {
         List<String> bases = new ArrayList<>(2);
         List<PlaceholderModifiers.Chain> chains = new ArrayList<>(2);
@@ -527,8 +565,8 @@ public final class Engine {
             bases.add(key.substring(0, dot));
             chains.add(this.modifiers.compile(key.substring(dot + 1)));
         }
-        return bases.isEmpty() ? new KeyPlan(key, KeyPlan.NO_BASES, KeyPlan.NO_CHAINS, this.keys)
-                : new KeyPlan(key, bases.toArray(KeyPlan.NO_BASES), chains.toArray(KeyPlan.NO_CHAINS), this.keys);
+        return bases.isEmpty() ? new KeyPlan(key, KeyPlan.NO_BASES, KeyPlan.NO_CHAINS, this.keys, this.constants)
+                : new KeyPlan(key, bases.toArray(KeyPlan.NO_BASES), chains.toArray(KeyPlan.NO_CHAINS), this.keys, this.constants);
     }
 
     /**

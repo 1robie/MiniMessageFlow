@@ -314,7 +314,11 @@ final class NativeCompiler {
      */
     static @Nullable Component render(@NotNull List<Part> parts, @Nullable Object @NotNull [] values, @NotNull String @NotNull [] inline) {
         List<Component> children = renderParts(parts, values, inline);
-        return children == null ? null : Component.empty().children(children);
+        if (children == null) {
+            return null;
+        }
+        // One part is the message: no empty component around it.
+        return children.size() == 1 ? children.getFirst() : Component.empty().children(children);
     }
 
     private static @Nullable List<Component> renderParts(@NotNull List<Part> parts, @Nullable Object @NotNull [] values,
