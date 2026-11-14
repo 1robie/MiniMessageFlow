@@ -419,7 +419,7 @@ public final class Engine {
         String[] bases = plan.bases;
         boolean modifiers = bases.length > 0;
         if (values != null) {
-            Object given = fromValues(plan, values);
+            Object given = this.fromValues(plan, values, viewer);
             if (given != null) {
                 return given;
             }
@@ -482,9 +482,12 @@ public final class Engine {
      * The value {@link Values} has for a key, read by its place: the key itself, else the first base that is set with
      * its modifiers. Null when it has none, or when the modifiers don't apply.
      */
-    private static @Nullable Object fromValues(@NotNull KeyPlan plan, @NotNull Values values) {
+    private @Nullable Object fromValues(@NotNull KeyPlan plan, @NotNull Values values, @Nullable Pointered viewer) {
         if (plan.index >= 0) {
             Object raw = values.raw(plan.index);
+            if (raw instanceof PlaceholderValue computed) {
+                return computed.isComponent() ? this.toComponent(plan.key, computed, viewer) : this.plainText(plan.key, computed, viewer);
+            }
             if (raw != null) {
                 return raw;
             }
@@ -494,8 +497,12 @@ public final class Engine {
             Object raw = indexes[i] < 0 ? null : values.raw(indexes[i]);
             if (raw != null) {
                 PlaceholderModifiers.Chain chain = plan.chains[i];
-                String text = chain == null ? null : chain.apply(raw instanceof String string ? string : PLAIN.serialize((Component) raw));
-                return text;
+                if (chain == null) {
+                    return null;
+                }
+                return chain.apply(raw instanceof String string ? string
+                        : raw instanceof PlaceholderValue computed ? this.plainText(plan.bases[i], computed, viewer)
+                        : PLAIN.serialize((Component) raw));
             }
         }
         return null;

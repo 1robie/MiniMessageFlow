@@ -101,6 +101,19 @@ public final class MiniMessageFlow {
         return this.format(message, placeholders, null);
     }
 
+    /**
+     * As {@link #format(String, Placeholder, Pointered)}, with the values in a {@link Values} of this instance.
+     */
+    public @NotNull Component format(@NotNull String message, @NotNull Values values, @Nullable Pointered viewer) {
+        Objects.requireNonNull(message, "message cannot be null");
+        Objects.requireNonNull(values, "values cannot be null");
+        return this.templates.get(message, this.engine::compile).render(values, viewer);
+    }
+
+    public @NotNull Component format(@NotNull String message, @NotNull Values values) {
+        return this.format(message, values, null);
+    }
+
     public @NotNull Component format(@NotNull String message) {
         return this.format(message, Placeholder.empty(), null);
     }

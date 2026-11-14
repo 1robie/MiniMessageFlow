@@ -1,5 +1,6 @@
 package fr.robie.minimessageflow;
 
+import net.kyori.adventure.pointer.Pointered;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.ComponentLike;
 import org.jetbrains.annotations.ApiStatus;
@@ -7,6 +8,9 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.Arrays;
+import java.util.Objects;
+import java.util.function.Function;
+import java.util.function.Supplier;
 
 /**
  * The values of a render, set by {@link ValueKey} and kept in an array: made once
@@ -29,7 +33,8 @@ public final class Values {
 
     private final ValueKeys keys;
     /**
-     * By key index: a {@code String}, a {@code Component}, or null when unset.
+     * By key index: a {@code String}, a {@code Component}, a {@link PlaceholderValue} (computed at each render), or
+     * null when unset.
      */
     private final Object[] values;
 
@@ -63,6 +68,31 @@ public final class Values {
     }
 
     /**
+     * Sets a text computed at each render, as {@code Placeholder.of(key, supplier)}: asked once per render, wherever
+     * the placeholder is written. The supplier stays set until the key is set again. Not an overload of
+     * {@code set}: a lambda could not tell a supplier of text from a component.
+     */
+    public @NotNull Values setComputed(@NotNull ValueKey key, @NotNull Supplier<String> supplier) {
+        return this.set(key, PlaceholderValue.ofDynamic(Objects.requireNonNull(supplier, "supplier cannot be null")));
+    }
+
+    /**
+     * Sets a text computed for the viewer of each render, as {@code Placeholder.of(key, function)}.
+     */
+    public @NotNull Values setForViewer(@NotNull ValueKey key, @NotNull Function<Pointered, String> function) {
+        return this.set(key, PlaceholderValue.ofViewer(Objects.requireNonNull(function, "function cannot be null")));
+    }
+
+    /**
+     * Sets any value a {@link Placeholder} can hold, for the kinds without a method of their own here (a component
+     * computed at each render or for the viewer: {@code PlaceholderValue.ofDynamicComponent(...)}).
+     */
+    public @NotNull Values set(@NotNull ValueKey key, @NotNull PlaceholderValue value) {
+        this.values[this.index(key)] = Objects.requireNonNull(value, "value cannot be null");
+        return this;
+    }
+
+    /**
      * Removes a value: the placeholder is then one the call gives no value for.
      */
     public @NotNull Values unset(@NotNull ValueKey key) {
@@ -90,7 +120,8 @@ public final class Values {
     }
 
     /**
-     * The value at a key's place: a {@code String}, a {@code Component}, or null when unset. For the engine.
+     * The value at a key's place: a {@code String}, a {@code Component}, a {@link PlaceholderValue}, or null when
+     * unset. For the engine.
      */
     @ApiStatus.Internal
     public @Nullable Object raw(int index) {
@@ -108,6 +139,8 @@ public final class Values {
                 String name = this.keys.nameAt(i);
                 if (value instanceof String text) {
                     builder.register(name, text);
+                } else if (value instanceof PlaceholderValue computed) {
+                    builder.register(name, computed);
                 } else {
                     builder.register(name, (Component) value);
                 }

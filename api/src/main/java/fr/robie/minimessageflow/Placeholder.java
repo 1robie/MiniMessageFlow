@@ -369,6 +369,19 @@ public final class Placeholder {
         }
 
         /**
+         * Registers a value of any kind ({@code PlaceholderValue.ofDynamicComponent(...)}...).
+         *
+         * @param key   the placeholder key
+         * @param value the value
+         * @return this builder
+         */
+        public @NotNull Builder register(@NotNull String key, @NotNull PlaceholderValue value) {
+            this.own().put(key, java.util.Objects.requireNonNull(value, "value cannot be null"));
+            this.viewerValues |= value.needsViewer();
+            return this;
+        }
+
+        /**
          * Registers every placeholder of another set, replacing values with the same key.
          *
          * @param placeholders the placeholders to copy

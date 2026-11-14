@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- `Values` holds computed values: `setComputed(key, supplier)` (asked at each render), `setForViewer(key, function)`
+  and `set(key, PlaceholderValue)` for the other kinds (a component computed at each render or for the viewer).
+- `MiniMessageFlow.format(String, Values)` and `format(String, Values, Pointered)`.
+- `Placeholder.Builder.register(key, PlaceholderValue)`.
+
 ## 1.1.0
 
 - The parts of a natively compiled message that never change are compacted when it is compiled: the component a

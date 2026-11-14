@@ -663,4 +663,40 @@ class EngineTest {
         assertEquals("the native compiler is off",
                 MiniMessageFlow.builder().nativeCompiler(false).build().compile("Hi %name%").fallbackReason());
     }
+
+    @Test
+    @DisplayName("Values hold computed and viewer values, and format takes them")
+    void computedValues() {
+        MiniMessageFlow.Builder builder = MiniMessageFlow.builder();
+        fr.robie.minimessageflow.ValueKey time = builder.key("time");
+        fr.robie.minimessageflow.ValueKey who = builder.key("who");
+        fr.robie.minimessageflow.ValueKey item = builder.key("item");
+        MiniMessageFlow flow = builder.build();
+        fr.robie.minimessageflow.Values values = flow.newValues();
+
+        AtomicInteger calls = new AtomicInteger();
+        values.setComputed(time, () -> "t" + calls.incrementAndGet())
+                .setForViewer(who, viewer -> viewer == null ? "nobody" : "seen")
+                .set(item, fr.robie.minimessageflow.PlaceholderValue.ofDynamicComponent(() -> Component.text("Sword", NamedTextColor.AQUA)));
+        Template template = flow.compile("<red>%time%</red> again %time% <click:run_command:'/at %time%'>[%who%]</click> <item>");
+        assertEquals("t1 again t1 [] Sword", PLAIN.serialize(template.render(values)), "without a viewer, a viewer value is empty");
+        assertEquals(1, calls.get(), "asked once per render, wherever it is written");
+        assertEquals("t2 again t2 [] Sword", PLAIN.serialize(template.render(values)), "asked again at the next render");
+        net.kyori.adventure.pointer.Pointered viewer = new net.kyori.adventure.pointer.Pointered() {
+        };
+        assertEquals("t3 again t3 [seen] Sword", PLAIN.serialize(template.render(values, viewer)));
+        assertEquals("T4", PLAIN.serialize(flow.compile("%time.upper%").render(values)), "modifiers read a computed value");
+        assertEquals(ComponentRuns.of(template.render(values.toPlaceholder(), viewer)).size(),
+                ComponentRuns.of(template.render(values, viewer)).size(), "the copy as a Placeholder renders the same shape");
+
+        // A value that throws shows as written, and the handler is told, as with a Placeholder.
+        values.setComputed(time, () -> {
+            throw new IllegalStateException("boom");
+        });
+        assertEquals("%time%", PLAIN.serialize(flow.compile("%time%").render(values)));
+
+        values.clear().set(who, "Steve");
+        assertEquals("Hi Steve", PLAIN.serialize(flow.format("Hi %who%", values)));
+        assertEquals("Hi Steve", PLAIN.serialize(flow.format("Hi %who%", values, viewer)));
+    }
 }
