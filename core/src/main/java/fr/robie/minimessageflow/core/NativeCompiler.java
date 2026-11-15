@@ -58,6 +58,12 @@ final class NativeCompiler {
      */
     private static final java.util.regex.Pattern PLAYER_NAME = java.util.regex.Pattern.compile("(?!(?:true|false|on|off)$)[A-Za-z0-9_]{1,16}");
     private static final String[] NO_INLINE = new String[0];
+    /**
+     * The {@code leaf} of an {@link Part.Event} or {@link Part.Hover} whose parts are one {@link Part.Joined}: text and
+     * values of one style, which become one component with the event when the values are text. Its style has the
+     * joined text's style in it.
+     */
+    static final int JOINED = -2;
     private static final char LEGACY_SECTION = 0xA7;
     private static final char BACKSLASH = 0x5C;
 
@@ -106,7 +112,17 @@ final class NativeCompiler {
         NativeCompiler compiler = new NativeCompiler(standard, userTags, modifiers, slots, unclaimed, discover);
         try {
             Element root = compiler.parse(text, true);
-            return merge(reduce(root.children, Style.empty()));
+            List<Part> parts = merge(reduce(root.children, Style.empty()));
+            Part.Joined joined = joined(parts, Style.empty(), parts);
+            if (joined != null) {
+                return List.of(joined);
+            }
+            if (parts.size() > 1 && parts.getFirst() instanceof Part.Fixed(Component first) && first instanceof TextComponent
+                    && first.style().isEmpty() && first.children().isEmpty()) {
+                // Text without a style first: the parent of what follows, in place of an empty component around all.
+                return List.of(new Part.Group(Style.empty(), List.copyOf(parts.subList(1, parts.size())), first));
+            }
+            return parts;
         } catch (Unsupported e) {
             if (reason != null) {
                 reason[0] = compiler.reason != null ? "the tag " + compiler.reason
@@ -150,7 +166,7 @@ final class NativeCompiler {
          *
          * @param leaf the slot of the value, when the event is over one value and nothing else: the value is then
          *             one component with the event on it ({@code style} has the value's style in it, and
-         *             {@code parts} is empty); -1 otherwise
+         *             {@code parts} is empty); {@link #JOINED}, or -1 otherwise
          */
         record Event(@NotNull Style style, @NotNull String action, @NotNull Argument argument, @NotNull List<Part> parts,
                      int leaf) implements Part {
@@ -179,6 +195,104 @@ final class NativeCompiler {
         record Transform(@NotNull Style style, @NotNull ColorChange change, @NotNull List<Item> items,
                          @NotNull Palettes palettes) implements Part {
         }
+
+        /**
+         * Text and values of one style that are all of their parent: one component of the text and the values joined,
+         * when every value is text, in place of a parent and its children. {@code parts} are rendered instead when a
+         * value is a component.
+         *
+         * @param style the style of the one component: the text's, under what is around it
+         * @param texts the text before each value, and after the last one ({@code slots.length + 1})
+         */
+        record Joined(@NotNull Style style, @NotNull String @NotNull [] texts, int @NotNull [] slots,
+                      @NotNull List<Part> parts) implements Part {
+            /**
+             * The text, or null when a value is a component. A value that is missing adds nothing, as its part would.
+             */
+            @Nullable String text(@Nullable Object @NotNull [] values) {
+                String[] texts = this.texts;
+                int[] slots = this.slots;
+                if (slots.length == 1) {
+                    // The usual shape: one value between two texts, one string of its exact length.
+                    String value = text(values[slots[0]]);
+                    return value == null ? null : texts[0] + value + texts[1];
+                }
+                if (slots.length == 2) {
+                    String first = text(values[slots[0]]);
+                    String second = text(values[slots[1]]);
+                    return first == null || second == null ? null : texts[0] + first + texts[1] + second + texts[2];
+                }
+                int length = texts[slots.length].length();
+                for (int i = 0; i < slots.length; i++) {
+                    String value = text(values[slots[i]]);
+                    if (value == null) {
+                        return null;
+                    }
+                    length += texts[i].length() + value.length();
+                }
+                StringBuilder out = new StringBuilder(length);
+                for (int i = 0; i < slots.length; i++) {
+                    out.append(texts[i]).append(text(values[slots[i]]));
+                }
+                return out.append(texts[slots.length]).toString();
+            }
+
+            private static @Nullable String text(@Nullable Object value) {
+                return value == null ? "" : value instanceof String text ? text : null;
+            }
+        }
+    }
+
+    /**
+     * The parts as one {@link Part.Joined}, when they are text and values (at least one) of one style and nothing
+     * else; null otherwise.
+     *
+     * @param around   the style the parts are under, put on the joined component
+     * @param fallback what renders when a value is a component
+     */
+    private static @Nullable Part.Joined joined(@NotNull List<Part> parts, @NotNull Style around, @NotNull List<Part> fallback) {
+        if (parts.size() < 2) {
+            // One value alone is already one component.
+            return null;
+        }
+        Style style = null;
+        List<String> texts = new ArrayList<>();
+        List<Integer> slots = new ArrayList<>();
+        StringBuilder text = new StringBuilder();
+        for (Part part : parts) {
+            Style own;
+            switch (part) {
+                case Part.Fixed(Component component) when component instanceof TextComponent fixed
+                        && component.children().isEmpty() -> {
+                    own = component.style();
+                    text.append(fixed.content());
+                }
+                case Part.Value value -> {
+                    own = value.style();
+                    texts.add(text.toString());
+                    text.setLength(0);
+                    slots.add(value.slot());
+                }
+                default -> {
+                    return null;
+                }
+            }
+            if (style == null) {
+                style = own;
+            } else if (!style.equals(own)) {
+                return null;
+            }
+        }
+        if (slots.isEmpty()) {
+            return null;
+        }
+        texts.add(text.toString());
+        int[] slotArray = new int[slots.size()];
+        for (int i = 0; i < slotArray.length; i++) {
+            slotArray[i] = slots.get(i);
+        }
+        return new Part.Joined(style.merge(around, Style.Merge.Strategy.IF_ABSENT_ON_TARGET),
+                texts.toArray(new String[0]), slotArray, List.copyOf(fallback));
     }
 
     /**
@@ -354,6 +468,17 @@ final class NativeCompiler {
                     }
                     return Component.empty();
                 }
+                case Part.Joined joined -> {
+                    String text = joined.text(values);
+                    if (text != null) {
+                        return Component.text(text, joined.style());
+                    }
+                    return render(joined.parts(), values, inline);
+                }
+                case Part.Group(Style style, List<Part> children, Component shell) -> {
+                    List<Component> rendered = renderParts(children, values, inline);
+                    return rendered == null ? null : shell.children(rendered);
+                }
                 default -> {
                 }
             }
@@ -388,9 +513,22 @@ final class NativeCompiler {
                     }
                     out.add(shell.children(rendered));
                 }
+                case Part.Joined joined -> {
+                    String text = joined.text(values);
+                    if (text != null) {
+                        out.add(Component.text(text, joined.style()));
+                    } else {
+                        List<Component> rendered = renderParts(joined.parts(), values, inline);
+                        if (rendered == null) {
+                            return null;
+                        }
+                        out.addAll(rendered);
+                    }
+                }
                 case Part.Event(Style style, String action, Argument argument, List<Part> children, int leaf) -> {
-                    List<Component> rendered = leaf >= 0 ? null : renderParts(children, values, inline);
-                    if (rendered == null && leaf < 0) {
+                    String joined = leaf == JOINED ? ((Part.Joined) children.getFirst()).text(values) : null;
+                    List<Component> rendered = leaf >= 0 || joined != null ? null : renderParts(joinedParts(children, leaf), values, inline);
+                    if (rendered == null && leaf < 0 && joined == null) {
                         return null;
                     }
                     String value = argument.render(inline);
@@ -401,20 +539,25 @@ final class NativeCompiler {
                     if (event == null) {
                         return null;
                     }
-                    if (rendered == null) {
+                    if (joined != null) {
+                        out.add(Component.text(joined, event));
+                    } else if (rendered == null) {
                         addLeaf(out, values[leaf], event);
                     } else {
                         out.add(Component.text("", event).children(rendered));
                     }
                 }
                 case Part.Hover(Style style, InlineText text, List<Part> children, int leaf) -> {
-                    List<Component> rendered = leaf >= 0 ? null : renderParts(children, values, inline);
-                    Component hover = rendered == null && leaf < 0 ? null : text.render(inline);
+                    String joined = leaf == JOINED ? ((Part.Joined) children.getFirst()).text(values) : null;
+                    List<Component> rendered = leaf >= 0 || joined != null ? null : renderParts(joinedParts(children, leaf), values, inline);
+                    Component hover = rendered == null && leaf < 0 && joined == null ? null : text.render(inline);
                     if (hover == null) {
                         return null;
                     }
                     Style event = style.hoverEvent(HoverEvent.showText(hover));
-                    if (rendered == null) {
+                    if (joined != null) {
+                        out.add(Component.text(joined, event));
+                    } else if (rendered == null) {
                         addLeaf(out, values[leaf], event);
                     } else {
                         out.add(Component.text("", event).children(rendered));
@@ -446,6 +589,13 @@ final class NativeCompiler {
             }
         }
         return out;
+    }
+
+    /**
+     * An event's parts as children: with {@link #JOINED}, those of its {@link Part.Joined} (a value is a component).
+     */
+    private static @NotNull List<Part> joinedParts(@NotNull List<Part> parts, int leaf) {
+        return leaf == JOINED ? ((Part.Joined) parts.getFirst()).parts() : parts;
     }
 
     /**
@@ -758,8 +908,11 @@ final class NativeCompiler {
                         List<Part> inner = merge(reduce(element.children, Style.empty()));
                         Part.Value only = onlyValue(inner);
                         // A value with a hover of its own keeps it: it stays under this one.
+                        Part.Joined joined = only == null ? joined(inner, style, inner) : null;
                         parts.add(only != null && only.style().hoverEvent() == null
                                 ? new Part.Hover(under(only, style), text, List.of(), only.slot())
+                                : joined != null && joined.style().hoverEvent() == null
+                                ? new Part.Hover(joined.style(), text, List.of(joined), JOINED)
                                 : new Part.Hover(style, text, inner, -1));
                     } else if (element.dynamic instanceof DynamicTranslatable(String key, String fallback, List<Object> arguments)) {
                         parts.add(new Part.Translatable(style, key, fallback, arguments, merge(reduce(element.children, Style.empty()))));
@@ -770,7 +923,11 @@ final class NativeCompiler {
                         // A value with an event of the same kind on it keeps its own: it stays under this one.
                         boolean free = only != null && (action.equals("insert") ? only.style().insertion() == null
                                 : only.style().clickEvent() == null);
+                        Part.Joined joined = only == null ? joined(inner, style, inner) : null;
+                        boolean joinedFree = joined != null && (action.equals("insert") ? joined.style().insertion() == null
+                                : joined.style().clickEvent() == null);
                         parts.add(free ? new Part.Event(under(only, style), action, element.argument, List.of(), only.slot())
+                                : joinedFree ? new Part.Event(joined.style(), action, element.argument, List.of(joined), JOINED)
                                 : new Part.Event(style, action, element.argument, inner, -1));
                     } else if (hasEvents(element.style) || element.base != null) {
                         List<Part> inner = merge(reduce(element.children, Style.empty()));
@@ -780,8 +937,11 @@ final class NativeCompiler {
                             parts.add(only);
                         } else {
                             // An event stays on its parent; a keybind or translatable wraps what follows it.
-                            parts.add(new Part.Group(style, inner,
-                                    element.base == null ? Component.text("", style) : element.base.style(style)));
+                            Part.Group group = new Part.Group(style, inner,
+                                    element.base == null ? Component.text("", style) : element.base.style(style));
+                            // Text and values alone under the event: one component with it, when the values are text.
+                            Part.Joined joined = element.base == null ? joined(inner, style, List.of(group)) : null;
+                            parts.add(joined != null ? joined : group);
                         }
                     } else {
                         parts.addAll(reduce(element.children, style));

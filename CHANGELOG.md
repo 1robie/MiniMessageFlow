@@ -26,6 +26,19 @@
   shop line with the same values (JMH): 89 ns and 360 B to 34 ns and 72 B, 193 to 58 ns on 8 threads. To keep values
   that change at each render cheap, a render is kept after about one miss in eight: with values changing at every
   render, 1-3 % slower on one thread and 5-8 % on 8 threads, 3 B more.
+- A render whose values are the last render's allocates nothing: the values are compared as they are read, and the
+  arrays are only made at the first that differs. The shop line with the same values: 72 B to 48 B (what `comma`
+  writes); three values and a click: 32 B to 0 B.
+- Text and values of one style that are all of their message, or all that a click, hover or insertion is over, are
+  one component of the text joined when the values are text (`<green>Welcome %name%!`,
+  `<click:run_command:'/tp %name%'>[tp %name%]`), instead of a component around a component per piece. A
+  component value renders as before. It shows the same. With values changing at each render (JMH, `RenderBenchmark`):
+  `<green>Welcome %name%!` 72 ns and 286 B to 32 ns and 105 B; the click line 114 ns and 585 B to 64 ns and 293 B;
+  three values and a click 172 ns and 600 B to 131 ns and 411 B.
+- A message starting with text without a style (`Hello <red>%name%`) renders that text as the parent of the rest,
+  instead of an empty component around all.
+- `RenderBenchmark`: renders with values that change at each send (16 sets made before the run), so a render is
+  measured rather than the last render given again; `...Send` adds the JSON serialisation.
 
 ## 1.1.0
 

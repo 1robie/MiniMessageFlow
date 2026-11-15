@@ -791,4 +791,66 @@ class EngineTest {
         assertEquals("Hi Steve", PLAIN.serialize(flow.format("Hi %who%", values)));
         assertEquals("Hi Steve", PLAIN.serialize(flow.format("Hi %who%", values, viewer)));
     }
+
+    @Test
+    @DisplayName("Text and text values of one style render as one component; a component value keeps its own")
+    void joinedText() {
+        MiniMessageFlow reference = MiniMessageFlow.builder().nativeCompiler(false).build();
+        String[] messages = {"<green>Welcome %name%!", "<click:run_command:'/tp %name%'>[tp %name%]",
+                "<red><click:run_command:/help>[%name% and %rank%]</click> after", "<hover:show_text:'<gray>%rank%'>[%name%]</hover>",
+                "<insert:%name%>%rank% x %name% y %rank%</insert>", "Hello <red>%name%", "%name%%rank%",
+                "<click:suggest_command:/w %name%><click:suggest_command:/b>%rank%!</click></click>"};
+        Placeholder text = Placeholder.of("name", "Steve", "rank", "VIP");
+        Placeholder component = Placeholder.builder()
+                .register("name", Component.text("Steve", NamedTextColor.GOLD)).register("rank", "VIP").build();
+        for (String message : messages) {
+            Template template = this.flow.compile(message);
+            assertEquals(Template.Kind.NATIVE, template.kind(), message);
+            for (Placeholder values : new Placeholder[]{text, component, Placeholder.of("rank", "VIP")}) {
+                assertEquals(ComponentRuns.of(reference.compile(message).render(values)), ComponentRuns.of(template.render(values)),
+                        message + " with " + values.getMap());
+            }
+        }
+        Component welcome = this.flow.compile("<green>Welcome %name%!").render(text);
+        assertEquals(Component.text("Welcome Steve!", NamedTextColor.GREEN), welcome, "one component");
+        Component tp = this.flow.compile("<click:run_command:'/tp %name%'>[tp %name%]").render(text);
+        assertTrue(tp.children().isEmpty(), "the click is on the text itself: " + tp);
+        assertEquals("[tp Steve]", PLAIN.serialize(tp));
+        Component hello = this.flow.compile("Hello <red>%name%").render(text);
+        assertEquals("Hello ", ((net.kyori.adventure.text.TextComponent) hello).content(), "the first text is the parent");
+        assertEquals(1, hello.children().size());
+    }
+
+    @Test
+    @DisplayName("The last render is given again only while every value, written once or more, is the same")
+    void lastRenderMatchesEachValue() {
+        Template template = this.flow.compile("<red>%a%</red> %b% <click:run_command:'/x %a% %c%'>%a% %c%</click>");
+        String[][] sends = {{"1", "2", "3"}, {"1", "2", "3"}, {"1", "9", "3"}, {"1", "9", "4"}, {"5", "9", "4"},
+                {"5", "9", "4"}, {"1", "2", "3"}};
+        for (String[] send : sends) {
+            Placeholder values = Placeholder.of(java.util.Map.of("a", send[0], "b", send[1], "c", send[2]));
+            for (int i = 0; i < 3; i++) {
+                Component rendered = template.render(values);
+                String expected = send[0] + " " + send[1] + " " + send[0] + " " + send[2];
+                assertEquals(expected, PLAIN.serialize(rendered));
+                assertEquals(net.kyori.adventure.text.event.ClickEvent.runCommand("/x " + send[0] + " " + send[2]), clickOf(rendered), expected);
+            }
+        }
+        // A key without a value shows as written, also when the last render had one.
+        assertEquals("1 %b% 1 3", PLAIN.serialize(template.render(Placeholder.of("a", "1", "c", "3"))));
+        assertEquals("1 2 1 3", PLAIN.serialize(template.render(Placeholder.of(java.util.Map.of("a", "1", "b", "2", "c", "3")))));
+    }
+
+    private static Object clickOf(Component component) {
+        if (component.clickEvent() != null) {
+            return component.clickEvent();
+        }
+        for (Component child : component.children()) {
+            Object value = clickOf(child);
+            if (value != null) {
+                return value;
+            }
+        }
+        return null;
+    }
 }

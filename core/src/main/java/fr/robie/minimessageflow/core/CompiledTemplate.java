@@ -39,7 +39,6 @@ final class CompiledTemplate implements Template {
      * For each slot, the first slot with the same key (itself when it is the first).
      */
     private final int[] slotSources;
-    private final boolean repeatedSlots;
     /**
      * For each inline value, where a render already has it: the slot with the same key, or {@code -1 - i} for the
      * first inline value {@code i} with the same key (itself when it is the first).
@@ -73,6 +72,7 @@ final class CompiledTemplate implements Template {
      */
     private @Nullable Last last;
     private static final int KEEP_ONE_IN = 8;
+    private static final Object[] NO_VALUES = new Object[0];
 
     CompiledTemplate(@NotNull Engine engine, @NotNull String source, @NotNull String compiled, @NotNull Engine.Slots slots,
                      @Nullable List<Object> pieces, @NotNull List<String> inlineKeys, @NotNull Engine.Form base,
@@ -86,13 +86,10 @@ final class CompiledTemplate implements Template {
         this.inlineKeys = inlineKeys;
         this.slotSources = new int[slots.size()];
         this.slotPlans = new Engine.KeyPlan[slots.size()];
-        boolean repeated = false;
         for (int slot = 0; slot < this.slotSources.length; slot++) {
             this.slotSources[slot] = firstSlot(slots, slots.key(slot));
             this.slotPlans[slot] = engine.plan(slots.key(slot));
-            repeated |= this.slotSources[slot] != slot;
         }
-        this.repeatedSlots = repeated;
         this.inlineSources = new int[inlineKeys.size()];
         this.inlinePlans = new Engine.KeyPlan[inlineKeys.size()];
         for (int i = 0; i < this.inlineSources.length; i++) {
@@ -192,17 +189,17 @@ final class CompiledTemplate implements Template {
 
     private @NotNull Component render(@NotNull Placeholder placeholders, @Nullable Values fast, @Nullable Pointered viewer) {
         int size = this.slots.size();
-        // Each a String (plain text), a Component, or null.
-        Object[] values = new Object[size];
-        // The values as given (null when there is none), for the other places the same key is written.
-        Object[] given = this.pieces != null || this.repeatedSlots ? new Object[size] : null;
+        // While every value is the last render's, nothing is allocated: the arrays are made at the first that differs,
+        // and a render with the same values gives the last component again. Each value a String (plain text), a
+        // Component, or null.
+        Last last = this.last;
+        Object[] keptValues = last == null ? null : last.values();
+        Object[] values = null;
         Set<Integer> unknown = null;
         for (int slot = 0; slot < size; slot++) {
             int source = this.slotSources[slot];
-            Object value = given != null && source != slot ? given[source] : this.engine.value(this.slotPlans[slot], placeholders, fast, viewer);
-            if (given != null) {
-                given[slot] = value;
-            }
+            Object value = source != slot ? this.given(values, keptValues, source)
+                    : this.engine.value(this.slotPlans[slot], placeholders, fast, viewer);
             if (value == null) {
                 if (this.slots.isName(slot)) {
                     if (unknown == null) {
@@ -213,24 +210,57 @@ final class CompiledTemplate implements Template {
                     value = this.slotPlans[slot].written;
                 }
             }
+            if (values == null) {
+                if (keptValues != null && Last.same(keptValues[slot], value)) {
+                    continue;
+                }
+                values = new Object[size];
+                if (keptValues != null) {
+                    System.arraycopy(keptValues, 0, values, 0, slot);
+                }
+            }
             values[slot] = value;
         }
         String[] inline = null;
+        boolean inlineSame = true;
         if (this.pieces != null) {
-            inline = new String[this.inlineKeys.size()];
-            for (int i = 0; i < inline.length; i++) {
+            String[] keptInline = last == null ? null : last.inline();
+            int count = this.inlineKeys.size();
+            for (int i = 0; i < count; i++) {
                 int source = this.inlineSources[i];
+                String text;
                 if (source < 0 && -1 - source < i) {
-                    inline[i] = inline[-1 - source];
+                    text = inline != null ? inline[-1 - source] : keptInline[-1 - source];
                 } else {
-                    inline[i] = Engine.inlineText(this.inlinePlans[i], source >= 0 ? given[source] : this.engine.value(this.inlinePlans[i], placeholders, fast, viewer));
+                    Object value = source >= 0 ? this.given(values, keptValues, source)
+                            : this.engine.value(this.inlinePlans[i], placeholders, fast, viewer);
+                    text = Engine.inlineText(this.inlinePlans[i], value);
                 }
+                if (inline == null) {
+                    if (keptInline != null && keptInline[i].equals(text)) {
+                        continue;
+                    }
+                    inline = new String[count];
+                    if (keptInline != null) {
+                        System.arraycopy(keptInline, 0, inline, 0, i);
+                    }
+                }
+                inline[i] = text;
+            }
+            if (inline == null) {
+                // Every text as the last render's: its array, which is never changed.
+                inline = keptInline;
+            } else {
+                inlineSame = false;
             }
         }
         // Every value has been asked for (a supplier, a resolver): what is built from them depends on nothing else.
-        Last last = this.last;
-        if (last != null && last.matches(values, inline)) {
+        if (values == null && inlineSame && last != null) {
             return last.component();
+        }
+        if (values == null) {
+            // The same values, other inline texts: the last render's values, which are never changed.
+            values = keptValues != null ? keptValues : NO_VALUES;
         }
         Component rendered = this.build(values, unknown, inline);
         // Kept after about one miss in eight: values that come again are kept within a few renders, and values that
@@ -251,17 +281,18 @@ final class CompiledTemplate implements Template {
          * Whether a render with these values gives the same component: the same text, the same component instance
          * (a component is compared by identity: equals would walk it, and a new one is rarely equal).
          */
-        boolean matches(@Nullable Object @NotNull [] values, @NotNull String @Nullable [] inline) {
-            Object[] kept = this.values;
-            for (int i = 0; i < values.length; i++) {
-                Object a = kept[i];
-                Object b = values[i];
-                if (a != b && !(a instanceof String text && text.equals(b))) {
-                    return false;
-                }
-            }
-            return inline == null || java.util.Arrays.equals(this.inline, inline);
+        static boolean same(@Nullable Object kept, @Nullable Object value) {
+            return kept == value || kept instanceof String text && text.equals(value);
         }
+    }
+
+    /**
+     * A slot's value as given, null when it had none (its value is then the placeholder as written, or null), read
+     * from this render's values, or from the last render's while they are the same.
+     */
+    private @Nullable Object given(@Nullable Object @Nullable [] values, @Nullable Object @Nullable [] kept, int slot) {
+        Object value = values != null ? values[slot] : kept[slot];
+        return value == this.slotPlans[slot].written ? null : value;
     }
 
     private @NotNull Component build(@Nullable Object @NotNull [] values, @Nullable Set<Integer> unknown, @NotNull String @Nullable [] inline) {
