@@ -52,20 +52,39 @@ import java.util.function.Supplier;
  * </pre>
  */
 public final class Placeholder {
-    private static final Placeholder EMPTY = new Placeholder(Collections.emptyMap(), false);
+    private static final Object[] NO_ENTRIES = new Object[0];
+    /**
+     * Up to this many values are kept in one array, read in order: cheaper to build and to read than a map for the
+     * few values a message has. More go in a map.
+     */
+    private static final int SMALL = 8;
+    private static final Placeholder EMPTY = new Placeholder(NO_ENTRIES, 0, null, false);
 
-    private final Map<String, PlaceholderValue> placeholders;
+    /**
+     * Each key ({@code String}) followed by its value ({@code PlaceholderValue}), {@code size} pairs, when there are
+     * at most {@link #SMALL}; null with a map.
+     */
+    private final Object @Nullable [] entries;
+    private final int size;
+    /**
+     * The values by key, when there are more than {@link #SMALL}; otherwise made when {@link #getMap()} asks for it.
+     */
+    private @Nullable Map<String, PlaceholderValue> map;
     private final boolean hasViewerValues;
 
     /**
-     * Creates a new Placeholder with the given key-value pairs.
-     *
-     * @param placeholders    an immutable map of placeholders
      * @param hasViewerValues whether a value may need the viewer (true when unsure: it only spares a scan)
      */
-    private Placeholder(@NotNull Map<String, PlaceholderValue> placeholders, boolean hasViewerValues) {
-        this.placeholders = placeholders;
+    private Placeholder(Object @Nullable [] entries, int size, @Nullable Map<String, PlaceholderValue> map,
+                        boolean hasViewerValues) {
+        this.entries = entries;
+        this.size = size;
+        this.map = map;
         this.hasViewerValues = hasViewerValues;
+    }
+
+    private static @NotNull Placeholder one(@NotNull String key, @NotNull PlaceholderValue value, boolean viewer) {
+        return new Placeholder(new Object[]{key, value}, 1, null, viewer);
     }
 
     /**
@@ -74,7 +93,17 @@ public final class Placeholder {
      * @return an immutable map of placeholder key-value pairs
      */
     public @NotNull Map<String, PlaceholderValue> getMap() {
-        return this.placeholders;
+        Map<String, PlaceholderValue> map = this.map;
+        if (map == null) {
+            // Made once, on demand: an immutable map, safe to publish without a lock.
+            Map<String, PlaceholderValue> built = new HashMap<>(this.size * 2);
+            for (int i = 0; i < this.size; i++) {
+                built.put((String) this.entries[2 * i], (PlaceholderValue) this.entries[2 * i + 1]);
+            }
+            map = Map.copyOf(built);
+            this.map = map;
+        }
+        return map;
     }
 
     /**
@@ -83,7 +112,7 @@ public final class Placeholder {
      * @return true if there are no placeholders, false otherwise
      */
     public boolean isEmpty() {
-        return this.placeholders.isEmpty();
+        return this.entries != null ? this.size == 0 : this.map.isEmpty();
     }
 
     /**
@@ -93,7 +122,30 @@ public final class Placeholder {
      * @return the value, or null if none is registered
      */
     public @Nullable PlaceholderValue get(@NotNull String key) {
-        return this.placeholders.get(key);
+        Object[] entries = this.entries;
+        if (entries == null) {
+            return this.map.get(key);
+        }
+        for (int i = 0, end = 2 * this.size; i < end; i += 2) {
+            Object k = entries[i];
+            if (k == key || k.equals(key)) {
+                return (PlaceholderValue) entries[i + 1];
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Calls the action with each key and its value.
+     */
+    private void forEach(@NotNull java.util.function.BiConsumer<String, PlaceholderValue> action) {
+        if (this.entries == null) {
+            this.map.forEach(action);
+            return;
+        }
+        for (int i = 0; i < this.size; i++) {
+            action.accept((String) this.entries[2 * i], (PlaceholderValue) this.entries[2 * i + 1]);
+        }
     }
 
 
@@ -121,7 +173,7 @@ public final class Placeholder {
         // Only the keys found in the message are evaluated, each once.
         Map<String, String> evaluated = new HashMap<>(4);
         Function<String, String> lookup = key -> {
-            PlaceholderValue value = this.placeholders.get(key);
+            PlaceholderValue value = this.get(key);
             if (value == null) {
                 return null;
             }
@@ -145,8 +197,8 @@ public final class Placeholder {
     public boolean isViewerDependent(@Nullable String text) {
         return this.hasViewerValues && text != null
                 && PlaceholderScanner.anyKey(text, key -> {
-            String base = PlaceholderModifiers.baseKey(key, this.placeholders::containsKey);
-            return base != null && this.placeholders.get(base).needsViewer();
+            String base = PlaceholderModifiers.baseKey(key, k -> this.get(k) != null);
+            return base != null && this.get(base).needsViewer();
         });
     }
 
@@ -169,7 +221,7 @@ public final class Placeholder {
      * @return a Placeholder containing the single key-value pair
      */
     public static @NotNull Placeholder of(@NotNull String key, String value) {
-        return new Placeholder(Map.of(key, PlaceholderValue.ofStatic(value == null ? "" : value)), false);
+        return one(key, PlaceholderValue.ofStatic(value == null ? "" : value), false);
     }
 
     /**
@@ -180,7 +232,7 @@ public final class Placeholder {
      * @return a Placeholder containing the single key-value pair
      */
     public static @NotNull Placeholder of(@NotNull String key, @NotNull Supplier<String> supplier) {
-        return new Placeholder(Map.of(key, PlaceholderValue.ofDynamic(supplier)), false);
+        return one(key, PlaceholderValue.ofDynamic(supplier), false);
     }
 
     /**
@@ -191,7 +243,7 @@ public final class Placeholder {
      * @return a Placeholder containing the single key-value pair
      */
     public static @NotNull Placeholder of(@NotNull String key, @NotNull Function<Pointered, String> function) {
-        return new Placeholder(Map.of(key, PlaceholderValue.ofViewer(function)), true);
+        return one(key, PlaceholderValue.ofViewer(function), true);
     }
 
     /**
@@ -202,7 +254,7 @@ public final class Placeholder {
      * @return a new Placeholder instance
      */
     public static @NotNull Placeholder of(@NotNull String key, @NotNull Component component) {
-        return new Placeholder(Map.of(key, PlaceholderValue.ofComponent(component)), false);
+        return one(key, PlaceholderValue.ofComponent(component), false);
     }
 
     /**
@@ -214,7 +266,7 @@ public final class Placeholder {
      * @return a new Placeholder instance
      */
     public static @NotNull Placeholder ofComponent(@NotNull String key, @NotNull Supplier<? extends ComponentLike> supplier) {
-        return new Placeholder(Map.of(key, PlaceholderValue.ofDynamicComponent(supplier)), false);
+        return one(key, PlaceholderValue.ofDynamicComponent(supplier), false);
     }
 
     /**
@@ -225,7 +277,7 @@ public final class Placeholder {
      * @return a new Placeholder instance
      */
     public static @NotNull Placeholder ofViewerComponent(@NotNull String key, @NotNull Function<Pointered, ? extends ComponentLike> function) {
-        return new Placeholder(Map.of(key, PlaceholderValue.ofViewerComponent(function)), true);
+        return one(key, PlaceholderValue.ofViewerComponent(function), true);
     }
 
     /**
@@ -242,9 +294,9 @@ public final class Placeholder {
                                           @NotNull String key2, String value2) {
         PlaceholderValue second = PlaceholderValue.ofStatic(value2 == null ? "" : value2);
         if (key1.equals(key2)) {
-            return new Placeholder(Map.of(key2, second), false); // the last one wins, as in a builder
+            return one(key2, second, false); // the last one wins, as in a builder
         }
-        return new Placeholder(Map.of(key1, PlaceholderValue.ofStatic(value1 == null ? "" : value1), key2, second), false);
+        return new Placeholder(new Object[]{key1, PlaceholderValue.ofStatic(value1 == null ? "" : value1), key2, second}, 2, null, false);
     }
 
     /**
@@ -276,22 +328,59 @@ public final class Placeholder {
      */
     @SuppressWarnings("UnusedReturnValue")
     public static final class Builder {
-        private Map<String, PlaceholderValue> map = new HashMap<>();
+        /**
+         * Each key followed by its value, {@link #size} pairs, while there are at most {@link #SMALL}; then
+         * {@link #map}.
+         */
+        private Object[] entries = NO_ENTRIES;
+        private int size;
+        private @Nullable Map<String, PlaceholderValue> map;
         /**
          * Whether a value that needs the viewer was ever registered.
          */
         private boolean viewerValues;
         /**
-         * Whether {@link #map} belongs to a built Placeholder: it is copied before the next change.
+         * Whether the arrays or the map belong to a built Placeholder: they are copied before the next change.
          */
         private boolean built;
 
-        private @NotNull Map<String, PlaceholderValue> own() {
+        /**
+         * Sets a key's value, replacing the one it had.
+         */
+        private void put(@NotNull String key, @NotNull PlaceholderValue value) {
+            java.util.Objects.requireNonNull(key, "key cannot be null");
             if (this.built) {
-                this.map = new HashMap<>(this.map);
+                this.entries = this.entries.clone();
+                if (this.map != null) {
+                    this.map = new HashMap<>(this.map);
+                }
                 this.built = false;
             }
-            return this.map;
+            if (this.map != null) {
+                this.map.put(key, value);
+                return;
+            }
+            for (int i = 0, end = 2 * this.size; i < end; i += 2) {
+                if (this.entries[i].equals(key)) {
+                    this.entries[i + 1] = value;
+                    return;
+                }
+            }
+            if (this.size == SMALL) {
+                Map<String, PlaceholderValue> map = new HashMap<>(SMALL * 4);
+                for (int i = 0; i < this.size; i++) {
+                    map.put((String) this.entries[2 * i], (PlaceholderValue) this.entries[2 * i + 1]);
+                }
+                map.put(key, value);
+                this.map = map;
+                return;
+            }
+            if (2 * this.size == this.entries.length) {
+                this.entries = java.util.Arrays.copyOf(this.entries, this.size == 0 ? 8 : 2 * SMALL);
+            }
+            this.entries[2 * this.size] = key;
+            this.entries[2 * this.size + 1] = value;
+            this.size++;
         }
 
         /**
@@ -302,7 +391,7 @@ public final class Placeholder {
          * @return this Builder instance for method chaining
          */
         public @NotNull Builder register(@NotNull String key, String value) {
-            this.own().put(key, PlaceholderValue.ofStatic(value == null ? "" : value));
+            this.put(key, PlaceholderValue.ofStatic(value == null ? "" : value));
             return this;
         }
 
@@ -314,7 +403,7 @@ public final class Placeholder {
          * @return this Builder instance for method chaining
          */
         public @NotNull Builder register(@NotNull String key, @NotNull Supplier<String> supplier) {
-            this.own().put(key, PlaceholderValue.ofDynamic(supplier));
+            this.put(key, PlaceholderValue.ofDynamic(supplier));
             return this;
         }
 
@@ -326,7 +415,7 @@ public final class Placeholder {
          * @return this Builder instance for method chaining
          */
         public @NotNull Builder register(@NotNull String key, @NotNull Function<Pointered, String> function) {
-            this.own().put(key, PlaceholderValue.ofViewer(function));
+            this.put(key, PlaceholderValue.ofViewer(function));
             this.viewerValues = true;
             return this;
         }
@@ -339,7 +428,7 @@ public final class Placeholder {
          * @return this builder
          */
         public @NotNull Builder register(@NotNull String key, @NotNull Component component) {
-            this.own().put(key, PlaceholderValue.ofComponent(component));
+            this.put(key, PlaceholderValue.ofComponent(component));
             return this;
         }
 
@@ -351,7 +440,7 @@ public final class Placeholder {
          * @return this builder
          */
         public @NotNull Builder registerComponent(@NotNull String key, @NotNull Supplier<? extends ComponentLike> supplier) {
-            this.own().put(key, PlaceholderValue.ofDynamicComponent(supplier));
+            this.put(key, PlaceholderValue.ofDynamicComponent(supplier));
             return this;
         }
 
@@ -363,7 +452,7 @@ public final class Placeholder {
          * @return this builder
          */
         public @NotNull Builder registerViewerComponent(@NotNull String key, @NotNull Function<Pointered, ? extends ComponentLike> function) {
-            this.own().put(key, PlaceholderValue.ofViewerComponent(function));
+            this.put(key, PlaceholderValue.ofViewerComponent(function));
             this.viewerValues = true;
             return this;
         }
@@ -376,7 +465,7 @@ public final class Placeholder {
          * @return this builder
          */
         public @NotNull Builder register(@NotNull String key, @NotNull PlaceholderValue value) {
-            this.own().put(key, java.util.Objects.requireNonNull(value, "value cannot be null"));
+            this.put(key, java.util.Objects.requireNonNull(value, "value cannot be null"));
             this.viewerValues |= value.needsViewer();
             return this;
         }
@@ -388,7 +477,7 @@ public final class Placeholder {
          * @return this builder
          */
         public @NotNull Builder registerAll(@NotNull Placeholder placeholders) {
-            this.own().putAll(placeholders.placeholders);
+            placeholders.forEach(this::put);
             this.viewerValues |= placeholders.hasViewerValues;
             return this;
         }
@@ -410,9 +499,13 @@ public final class Placeholder {
          * @return a new Placeholder instance
          */
         public @NotNull Placeholder build() {
-            // The builder's own map, read-only from now on: the builder copies it if it is used again.
+            if (this.size == 0 && this.map == null) {
+                return EMPTY;
+            }
+            // The builder's own arrays or map, read-only from now on: the builder copies them if it is used again.
             this.built = true;
-            return new Placeholder(Collections.unmodifiableMap(this.map), this.viewerValues);
+            return this.map != null ? new Placeholder(null, 0, Collections.unmodifiableMap(this.map), this.viewerValues)
+                    : new Placeholder(this.entries, this.size, null, this.viewerValues);
         }
     }
 }

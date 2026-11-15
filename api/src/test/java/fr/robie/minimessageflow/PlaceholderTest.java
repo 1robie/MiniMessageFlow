@@ -225,4 +225,34 @@ class PlaceholderTest {
         assertTrue(Placeholder.builder().registerAll(Placeholder.of("v", viewer -> "x")).build().isViewerDependent("%v%"));
         assertFalse(Placeholder.builder().register("v", "x").build().isViewerDependent("%v%"));
     }
+
+    @Test
+    @DisplayName("Any number of values: each key once, the last value wins, the map has them all")
+    void manyValues() throws Exception {
+        for (int count : new int[]{0, 1, 2, 3, 4, 5, 7, 8, 9, 12, 40}) {
+            Placeholder.Builder builder = Placeholder.builder();
+            java.util.Map<String, String> expected = new java.util.HashMap<>();
+            for (int i = 0; i < count; i++) {
+                builder.register("k" + i, "first");
+                builder.register("k" + i, "v" + i); // replaces
+                expected.put("k" + i, "v" + i);
+            }
+            Placeholder built = builder.build();
+            Placeholder grown = builder.register("extra", "x").register("k0", "changed").build();
+            assertEquals(count == 0, built.isEmpty(), "count " + count);
+            assertEquals(count, built.getMap().size(), "count " + count);
+            assertSame(built.getMap(), built.getMap(), "the map is made once");
+            for (int i = 0; i < count; i++) {
+                assertEquals("v" + i, built.get("k" + i).evaluate(null), "count " + count);
+                assertEquals("v" + i, built.getMap().get("k" + i).evaluate(null));
+                assertEquals(i == 0 ? "changed" : "v" + i, grown.get("k" + i).evaluate(null), "the second build, count " + count);
+            }
+            assertNull(built.get("extra"), "the first build is not changed by the builder, count " + count);
+            assertEquals(count == 0 ? 2 : count + 1, grown.getMap().size(), "extra, and k0 when it was not there");
+            assertEquals(expected.keySet(), built.getMap().keySet());
+            assertThrows(UnsupportedOperationException.class, () -> built.getMap().put("x", PlaceholderValue.ofStatic("y")));
+            Placeholder copy = Placeholder.builder().registerAll(built).build();
+            assertEquals(expected.keySet(), copy.getMap().keySet());
+        }
+    }
 }

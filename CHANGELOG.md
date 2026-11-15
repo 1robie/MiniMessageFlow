@@ -17,6 +17,9 @@
   component alone.
 - A placeholder without a value shows as written (`%key%`) from a text made when the message is compiled, not at
   each render: a line with one such placeholder allocates as much as with every value set.
+- A `Placeholder` of up to 8 values keeps them in one array, read in order, instead of a `HashMap`; `getMap()`
+  makes the map the first time it is asked. Building three values: 328 B to 160 B; a lookup no longer hashes the
+  key.
 
 ## 1.1.0
 
