@@ -20,6 +20,12 @@
 - A `Placeholder` of up to 8 values keeps them in one array, read in order, instead of a `HashMap`; `getMap()`
   makes the map the first time it is asked. Building three values: 328 B to 160 B; a lookup no longer hashes the
   key.
+- A template gives its last component again when a render's values are the same (the same text, the same
+  component instance): a message sent to many players, a line drawn again with nothing changed. Each value is still
+  asked for (suppliers, resolvers) at every render. Rendered components are immutable, so sharing one is safe. The
+  shop line with the same values (JMH): 89 ns and 360 B to 34 ns and 72 B, 193 to 58 ns on 8 threads. To keep values
+  that change at each render cheap, a render is kept after about one miss in eight: with values changing at every
+  render, 1-3 % slower on one thread and 5-8 % on 8 threads, 3 B more.
 
 ## 1.1.0
 

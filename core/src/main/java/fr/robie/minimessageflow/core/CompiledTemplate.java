@@ -13,6 +13,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ThreadLocalRandom;
 
 /**
  * A message compiled by {@link Engine}. Immutable but for its cache of variants (one per set of unknown
@@ -66,6 +67,12 @@ final class CompiledTemplate implements Template {
     private final Kind kind;
     private final List<String> placeholders;
     private final ConcurrentHashMap<Set<Integer>, Engine.Form> variants = new ConcurrentHashMap<>();
+    /**
+     * The last render, given again while the values are the same: a message sent to many players with the same
+     * values, a line drawn again with nothing changed. Not volatile: a thread that sees an older one only misses.
+     */
+    private @Nullable Last last;
+    private static final int KEEP_ONE_IN = 8;
 
     CompiledTemplate(@NotNull Engine engine, @NotNull String source, @NotNull String compiled, @NotNull Engine.Slots slots,
                      @Nullable List<Object> pieces, @NotNull List<String> inlineKeys, @NotNull Engine.Form base,
@@ -208,13 +215,9 @@ final class CompiledTemplate implements Template {
             }
             values[slot] = value;
         }
-        Set<Integer> unclaimed = unknown == null ? Set.of() : Set.copyOf(unknown);
-
-        Engine.Form form;
-        if (this.pieces == null) {
-            form = unclaimed.isEmpty() ? this.base : this.variant(unclaimed);
-        } else {
-            String[] inline = new String[this.inlineKeys.size()];
+        String[] inline = null;
+        if (this.pieces != null) {
+            inline = new String[this.inlineKeys.size()];
             for (int i = 0; i < inline.length; i++) {
                 int source = this.inlineSources[i];
                 if (source < 0 && -1 - source < i) {
@@ -223,6 +226,50 @@ final class CompiledTemplate implements Template {
                     inline[i] = Engine.inlineText(this.inlinePlans[i], source >= 0 ? given[source] : this.engine.value(this.inlinePlans[i], placeholders, fast, viewer));
                 }
             }
+        }
+        // Every value has been asked for (a supplier, a resolver): what is built from them depends on nothing else.
+        Last last = this.last;
+        if (last != null && last.matches(values, inline)) {
+            return last.component();
+        }
+        Component rendered = this.build(values, unknown, inline);
+        // Kept after about one miss in eight: values that come again are kept within a few renders, and values that
+        // change at each render seldom write a field all the threads read (8 threads: a write per render cost a
+        // third more time). The arrays are this render's own and are never changed: kept as they are.
+        if (last == null || ThreadLocalRandom.current().nextInt(KEEP_ONE_IN) == 0) {
+            this.last = new Last(values, inline, rendered);
+        }
+        return rendered;
+    }
+
+    /**
+     * The values and inline texts of the last render, and what it gave. Shared by the threads that render: immutable,
+     * and any one of them is right to keep.
+     */
+    private record Last(@Nullable Object @NotNull [] values, @NotNull String @Nullable [] inline, @NotNull Component component) {
+        /**
+         * Whether a render with these values gives the same component: the same text, the same component instance
+         * (a component is compared by identity: equals would walk it, and a new one is rarely equal).
+         */
+        boolean matches(@Nullable Object @NotNull [] values, @NotNull String @Nullable [] inline) {
+            Object[] kept = this.values;
+            for (int i = 0; i < values.length; i++) {
+                Object a = kept[i];
+                Object b = values[i];
+                if (a != b && !(a instanceof String text && text.equals(b))) {
+                    return false;
+                }
+            }
+            return inline == null || java.util.Arrays.equals(this.inline, inline);
+        }
+    }
+
+    private @NotNull Component build(@Nullable Object @NotNull [] values, @Nullable Set<Integer> unknown, @NotNull String @Nullable [] inline) {
+        Set<Integer> unclaimed = unknown == null ? Set.of() : Set.copyOf(unknown);
+        Engine.Form form;
+        if (inline == null) {
+            form = unclaimed.isEmpty() ? this.base : this.variant(unclaimed);
+        } else {
             if (this.inline != null && unclaimed.isEmpty()) {
                 Component rendered = this.engine.renderInline(this.inline, values, inline);
                 if (rendered != null) {

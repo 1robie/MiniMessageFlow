@@ -64,9 +64,11 @@ class EngineTest {
         Placeholder gold = Placeholder.builder()
                 .register("name", Component.text("Steve", NamedTextColor.GOLD)).register("rank", "VIP").build();
         Component first = template.render(gold);
-        assertSame(first, template.render(gold), "a styled value under a gradient: parsed once per value");
+        // A template of the same text has no last render of its own: it reads the engine's cache.
+        String text = template.source();
+        assertSame(first, this.flow.compile(text).render(gold), "a styled value under a gradient: parsed once per value");
         this.flow.clearCache();
-        assertNotSame(first, template.render(gold), "clearCache() drops it");
+        assertNotSame(first, this.flow.compile(text).render(gold), "clearCache() drops it");
     }
 
     @Test
@@ -488,6 +490,50 @@ class EngineTest {
         assertEquals(1, calls.get(), "evaluated once per render");
         assertTrue(Placeholder.ofViewerComponent("v", viewer -> Component.empty()).isViewerDependent("%v%"));
         assertFalse(Placeholder.ofComponent("v", Component::empty).isViewerDependent("%v%"));
+    }
+
+    @Test
+    @DisplayName("The same values give the last render's component again; each value is still asked for")
+    void lastRender() {
+        MiniMessageFlow stageOne = MiniMessageFlow.builder().nativeCompiler(false).build();
+        String[] messages = {
+                "<green>%name%</green> has <gold>%coins.comma%</gold>", "<click:run_command:'/tp %name%'>[%coins%]",
+                "<gradient:red:blue>Hi %name%!</gradient>", "<selector:@p> %name% %coins%", "<name> <nosuch> %coins%",
+                "<hover:show_text:'%coins% coins'>%name%",
+        };
+        for (String message : messages) {
+            Template template = this.flow.compile(message);
+            Template expected = stageOne.compile(message);
+            AtomicInteger asked = new AtomicInteger();
+            Placeholder steve = Placeholder.builder().register("name", "Steve")
+                    .register("coins", () -> {
+                        asked.incrementAndGet();
+                        return "1250";
+                    }).build();
+            Component first = template.render(steve);
+            assertSame(first, template.render(steve), message);
+            assertSame(first, template.render(Placeholder.of("name", new String("Steve"), "coins", "1250")), "equal text: " + message);
+            assertEquals(message.contains("coins") ? 2 : 0, asked.get(), "a supplier is asked at each render: " + message);
+            Placeholder alex = Placeholder.of("name", "Alex", "coins", "7");
+            Component other = template.render(alex);
+            assertNotSame(first, other, message);
+            assertEquals(ComponentRuns.of(expected.render(alex)), ComponentRuns.of(other), message);
+            Component gold = Component.text("Gold", NamedTextColor.GOLD);
+            Component withGold = template.render(Placeholder.builder().register("name", gold).register("coins", "1").build());
+            // Another instance, with another text: in a tag argument only the text is used.
+            Placeholder aqua = Placeholder.builder().register("name", Component.text("Aqua", NamedTextColor.AQUA))
+                    .register("coins", "1").build();
+            Component withAqua = template.render(aqua);
+            assertNotSame(withGold, withAqua, "another component instance: " + message);
+            assertEquals(ComponentRuns.of(expected.render(aqua)), ComponentRuns.of(withAqua), message);
+            // After a miss the render is kept one time in eight: the same values come back within a few renders.
+            Component previous = template.render(alex);
+            int renders = 1;
+            for (Component next; (next = template.render(alex)) != previous; previous = next) {
+                assertTrue(++renders < 500, "values sent again are kept: " + message);
+                assertEquals(ComponentRuns.of(other), ComponentRuns.of(next), message);
+            }
+        }
     }
 
     @Test
