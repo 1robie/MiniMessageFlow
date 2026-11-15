@@ -762,7 +762,7 @@ public final class Engine {
                 Object child = children[i];
                 filled[i] = child instanceof Component fixed ? fixed : fill(child, values);
             }
-            return shell.children(Arrays.asList(filled));
+            return Children.under(shell, Children.of(filled));
         }
         if (node instanceof Integer slot) {
             Object value = slot < values.length ? values[slot] : null;

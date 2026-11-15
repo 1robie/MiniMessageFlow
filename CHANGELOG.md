@@ -37,6 +37,17 @@
   three values and a click 172 ns and 600 B to 131 ns and 411 B.
 - A message starting with text without a style (`Hello <red>%name%`) renders that text as the parent of the rest,
   instead of an empty component around all.
+- A component a render builds over children (a message's parts, a click or hover over several, a gradient's
+  characters, MiniMessage's tree with its values) is made with Adventure's text component constructor, given the
+  render's own array-backed immutable list, instead of `children(list)`, which copies it (twice on 4.x, once on
+  5.x). 5.x keeps the list as it is; 4.x copies it once. The constructor is package-private: it is used when
+  Adventure's package is open to the library (Adventure on the class path, as on Paper), after a check against the
+  API when the class loads; otherwise, or with `-Dminimessageflow.directComponents=false`, the API is used. The
+  tests run both ways (`:core:testApiComponents`). With values changing at each render (JMH): five values each under
+  a colour 206 ns and 466 B to 143 ns and 364 B on 4.17, 133 ns and 474 B to 74 ns and 262 B on 5.2; three values
+  and a click 131 to 104 ns and 411 to 325 B on 4.17, 102 to 62 ns and 403 to 238 B on 5.2; a gradient 247 to
+  168 ns and 624 to 498 B on 4.17, 154 to 78 ns and 643 to 373 B on 5.2.
+- `-Pjmh.jvmArgs=...` passes JVM arguments to the benchmark forks.
 - `RenderBenchmark`: renders with values that change at each send (16 sets made before the run), so a render is
   measured rather than the last render given again; `...Send` adds the JSON serialisation.
 

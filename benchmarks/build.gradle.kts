@@ -47,6 +47,9 @@ jmh {
     }
     // Several threads on the same templates, to see contention: -Pjmh.threads=8
     providers.gradleProperty("jmh.threads").orNull?.let { threads = it.toInt() }
+    // JVM arguments for the forks, e.g. components built through Adventure's API:
+    //   -Pjmh.jvmArgs=-Dminimessageflow.directComponents=false
+    providers.gradleProperty("jmh.jvmArgs").orNull?.let { jvmArgsAppend = it.split(" ") }
     // One result file per run, so a run does not replace the last: -Pjmh.results=baseline-4.17
     providers.gradleProperty("jmh.results").orNull?.let {
         resultFormat = "JSON"

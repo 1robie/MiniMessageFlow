@@ -393,7 +393,7 @@ final class NativeCompiler {
                 shown[i] = runs.get(i) instanceof Run run ? Component.text(run.text(values), run.style())
                         : (Component) runs.get(i);
             }
-            return Component.empty().children(Arrays.asList(shown));
+            return Children.text("", Style.empty(), Children.of(shown));
         }
     }
 
@@ -476,58 +476,58 @@ final class NativeCompiler {
                     return render(joined.parts(), values, inline);
                 }
                 case Part.Group(Style style, List<Part> children, Component shell) -> {
-                    List<Component> rendered = renderParts(children, values, inline);
-                    return rendered == null ? null : shell.children(rendered);
+                    Children rendered = renderParts(children, values, inline);
+                    return rendered == null ? null : Children.under(shell, rendered);
                 }
                 default -> {
                 }
             }
         }
-        List<Component> children = renderParts(parts, values, inline);
+        Children children = renderParts(parts, values, inline);
         if (children == null) {
             return null;
         }
         // One part is the message: no empty component around it.
-        return children.size() == 1 ? children.getFirst() : Component.empty().children(children);
+        return children.size() == 1 ? children.first() : Children.text("", Style.empty(), children);
     }
 
-    private static @Nullable List<Component> renderParts(@NotNull List<Part> parts, @Nullable Object @NotNull [] values,
+    private static @Nullable Children renderParts(@NotNull List<Part> parts, @Nullable Object @NotNull [] values,
                                                          @NotNull String @NotNull [] inline) {
-        List<Component> out = new ArrayList<>(parts.size());
+        Children out = new Children(parts.size());
         for (Part part : parts) {
             switch (part) {
-                case Part.Fixed(Component component) -> out.add(component);
+                case Part.Fixed(Component component) -> out.push(component);
                 case Part.Value(int slot, Style style, Styled memo) -> {
                     Object value = values[slot];
                     if (value instanceof String text) {
                         // Text goes straight into its component, with the style around it.
-                        out.add(style.isEmpty() ? Component.text(text) : Component.text(text, style));
+                        out.push(style.isEmpty() ? Component.text(text) : Component.text(text, style));
                     } else if (value != null) {
-                        out.add(style.isEmpty() ? (Component) value : memo.apply((Component) value, style));
+                        out.push(style.isEmpty() ? (Component) value : memo.apply((Component) value, style));
                     }
                 }
                 case Part.Group(Style style, List<Part> children, Component shell) -> {
-                    List<Component> rendered = renderParts(children, values, inline);
+                    Children rendered = renderParts(children, values, inline);
                     if (rendered == null) {
                         return null;
                     }
-                    out.add(shell.children(rendered));
+                    out.push(Children.under(shell, rendered));
                 }
                 case Part.Joined joined -> {
                     String text = joined.text(values);
                     if (text != null) {
-                        out.add(Component.text(text, joined.style()));
+                        out.push(Component.text(text, joined.style()));
                     } else {
-                        List<Component> rendered = renderParts(joined.parts(), values, inline);
+                        Children rendered = renderParts(joined.parts(), values, inline);
                         if (rendered == null) {
                             return null;
                         }
-                        out.addAll(rendered);
+                        out.pushAll(rendered);
                     }
                 }
                 case Part.Event(Style style, String action, Argument argument, List<Part> children, int leaf) -> {
                     String joined = leaf == JOINED ? ((Part.Joined) children.getFirst()).text(values) : null;
-                    List<Component> rendered = leaf >= 0 || joined != null ? null : renderParts(joinedParts(children, leaf), values, inline);
+                    Children rendered = leaf >= 0 || joined != null ? null : renderParts(joinedParts(children, leaf), values, inline);
                     if (rendered == null && leaf < 0 && joined == null) {
                         return null;
                     }
@@ -540,31 +540,31 @@ final class NativeCompiler {
                         return null;
                     }
                     if (joined != null) {
-                        out.add(Component.text(joined, event));
+                        out.push(Component.text(joined, event));
                     } else if (rendered == null) {
                         addLeaf(out, values[leaf], event);
                     } else {
-                        out.add(Component.text("", event).children(rendered));
+                        out.push(Children.text("", event, rendered));
                     }
                 }
                 case Part.Hover(Style style, InlineText text, List<Part> children, int leaf) -> {
                     String joined = leaf == JOINED ? ((Part.Joined) children.getFirst()).text(values) : null;
-                    List<Component> rendered = leaf >= 0 || joined != null ? null : renderParts(joinedParts(children, leaf), values, inline);
+                    Children rendered = leaf >= 0 || joined != null ? null : renderParts(joinedParts(children, leaf), values, inline);
                     Component hover = rendered == null && leaf < 0 && joined == null ? null : text.render(inline);
                     if (hover == null) {
                         return null;
                     }
                     Style event = style.hoverEvent(HoverEvent.showText(hover));
                     if (joined != null) {
-                        out.add(Component.text(joined, event));
+                        out.push(Component.text(joined, event));
                     } else if (rendered == null) {
                         addLeaf(out, values[leaf], event);
                     } else {
-                        out.add(Component.text("", event).children(rendered));
+                        out.push(Children.text("", event, rendered));
                     }
                 }
                 case Part.Translatable(Style style, String key, String fallback, List<Object> arguments, List<Part> children) -> {
-                    List<Component> rendered = renderParts(children, values, inline);
+                    Children rendered = renderParts(children, values, inline);
                     if (rendered == null) {
                         return null;
                     }
@@ -577,14 +577,14 @@ final class NativeCompiler {
                         with.add(component);
                     }
                     Component base = fallback == null ? Component.translatable(key, with) : Component.translatable(key, fallback, with);
-                    out.add(base.style(style).children(rendered));
+                    out.push(base.style(style).children(rendered));
                 }
                 case Part.Transform(Style style, ColorChange change, List<Item> items, Palettes palettes) -> {
                     Component colored = transform(style, change, items, values, palettes);
                     if (colored == null) {
                         return null;
                     }
-                    out.add(colored);
+                    out.push(colored);
                 }
             }
         }
@@ -601,11 +601,11 @@ final class NativeCompiler {
     /**
      * A value as one component with an event's style on it: the event is not on a component of its own around it.
      */
-    private static void addLeaf(@NotNull List<Component> out, @Nullable Object value, @NotNull Style style) {
+    private static void addLeaf(@NotNull Children out, @Nullable Object value, @NotNull Style style) {
         if (value instanceof String text) {
-            out.add(Component.text(text, style));
+            out.push(Component.text(text, style));
         } else if (value != null) {
-            out.add(styled((Component) value, style));
+            out.push(styled((Component) value, style));
         }
     }
 
@@ -878,7 +878,7 @@ final class NativeCompiler {
             }
         }
         System.arraycopy(palette.trailing, 0, chars, position, palette.trailing.length);
-        return palettes.shell.children(Arrays.asList(chars));
+        return Children.under(palettes.shell, Children.of(chars));
     }
 
     // --- passes -------------------------------------------------------------------------------------------------

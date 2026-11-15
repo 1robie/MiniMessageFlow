@@ -130,6 +130,10 @@ differently), except for four things done on purpose:
   never changes is built once, a render only places the values (and colours a gradient, builds a click, a hover's
   text or a translation argument with its values). Each is checked against MiniMessage when it is compiled, and
   left to MiniMessage if they differ.
+- **No copies.** Text and text values of one style that are all of their parent are one component, their text
+  joined. A component over children is made with Adventure's own text component constructor and a list that is
+  never changed, which `children(list)` would copy (where the constructor can't be reached, Adventure as a named
+  module, the API is used: `-Dminimessageflow.directComponents=false` does the same).
 - **Other messages** are parsed once by MiniMessage with a marker where each value goes, and a render fills the
   markers; when that can't be done, they are parsed with their values, cached by values (`Template.kind()` and
   `fallbackReason()` tell which, and why). That is every message with:
@@ -214,6 +218,8 @@ published. [CONTRIBUTING.md](CONTRIBUTING.md) has the release checklist.
 ## Rules
 
 - No Adventure API that differs between versions outside `compat/`: `core` asks `AdventureBridges.current()`.
+  The one internal of Adventure `core` uses, `TextComponentImpl(List, Style, String)` (the same on every version),
+  is in `Children`, checked when it loads and replaced by the API when it can't be used.
   The version matrix enforces it (a missing or deprecated API fails compilation, `-Werror`).
 - A deliberate behaviour change edits `FormattingContract` in the same commit.
 
