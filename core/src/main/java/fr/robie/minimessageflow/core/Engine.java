@@ -521,6 +521,10 @@ public final class Engine {
         private static final PlaceholderModifiers.Chain[] NO_CHAINS = new PlaceholderModifiers.Chain[0];
 
         final String key;
+        /**
+         * The placeholder as written, {@code %key%}: what shows when it has no value.
+         */
+        final String written;
         final String[] bases;
         /**
          * For each base, its modifiers, or null when one of them is unknown (the placeholder stays as written).
@@ -541,6 +545,7 @@ public final class Engine {
                         @NotNull ValueKeys keys, @NotNull Map<String, Component> constants) {
             this.constant = constant(key, bases, chains, constants);
             this.key = key;
+            this.written = "%" + key + "%";
             this.bases = bases;
             this.chains = chains;
             this.index = keys.indexOf(key);
@@ -598,9 +603,9 @@ public final class Engine {
     /**
      * The plain text of a value written into a tag argument.
      */
-    static @NotNull String inlineText(@NotNull String key, @Nullable Object value) {
+    static @NotNull String inlineText(@NotNull KeyPlan plan, @Nullable Object value) {
         if (value == null) {
-            return "%" + key + "%";
+            return plan.written;
         }
         return stripTagBreaking(value instanceof String text ? text : PLAIN.serialize((Component) value));
     }

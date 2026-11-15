@@ -191,7 +191,6 @@ final class CompiledTemplate implements Template {
         Object[] given = this.pieces != null || this.repeatedSlots ? new Object[size] : null;
         Set<Integer> unknown = null;
         for (int slot = 0; slot < size; slot++) {
-            String key = this.slots.key(slot);
             int source = this.slotSources[slot];
             Object value = given != null && source != slot ? given[source] : this.engine.value(this.slotPlans[slot], placeholders, fast, viewer);
             if (given != null) {
@@ -204,7 +203,7 @@ final class CompiledTemplate implements Template {
                     }
                     unknown.add(slot);
                 } else {
-                    value = "%" + key + "%";
+                    value = this.slotPlans[slot].written;
                 }
             }
             values[slot] = value;
@@ -217,12 +216,11 @@ final class CompiledTemplate implements Template {
         } else {
             String[] inline = new String[this.inlineKeys.size()];
             for (int i = 0; i < inline.length; i++) {
-                String key = this.inlineKeys.get(i);
                 int source = this.inlineSources[i];
                 if (source < 0 && -1 - source < i) {
                     inline[i] = inline[-1 - source];
                 } else {
-                    inline[i] = Engine.inlineText(key, source >= 0 ? given[source] : this.engine.value(this.inlinePlans[i], placeholders, fast, viewer));
+                    inline[i] = Engine.inlineText(this.inlinePlans[i], source >= 0 ? given[source] : this.engine.value(this.inlinePlans[i], placeholders, fast, viewer));
                 }
             }
             if (this.inline != null && unclaimed.isEmpty()) {

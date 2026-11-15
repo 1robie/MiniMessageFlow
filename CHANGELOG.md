@@ -15,6 +15,8 @@
   It shows the same. The shop line ending in `<click:run_command:'/buy 42'>%n%`: 648 B to 368 B per render.
 - A natively compiled message of one part (`<green>%item%`) is rendered without a list: 128 B to 48 B, the text
   component alone.
+- A placeholder without a value shows as written (`%key%`) from a text made when the message is compiled, not at
+  each render: a line with one such placeholder allocates as much as with every value set.
 
 ## 1.1.0
 
