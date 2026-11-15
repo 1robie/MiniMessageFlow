@@ -10,6 +10,9 @@
   `-3`, up to 15 digits) reads it without a `double`, and `comma` writes numbers under a million as one string.
   The results are the same. `comma` on `1250`: 31 ns and 176 B to 11 ns and 48 B; the shop line with
   `%price.comma%`: 88 ns and 488 B to 69 ns and 360 B (a loop on JDK 21, not JMH).
+- A click, hover or insertion over one value and nothing else (`<click:run_command:'/buy'>%item%`) is on the
+  value's own component, not on an empty component around it; so is one whose argument or hover text holds values.
+  It shows the same. The shop line ending in `<click:run_command:'/buy 42'>%n%`: 648 B to 368 B per render.
 
 ## 1.1.0
 

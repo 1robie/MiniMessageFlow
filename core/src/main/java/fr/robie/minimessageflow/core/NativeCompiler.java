@@ -147,14 +147,21 @@ final class NativeCompiler {
 
         /**
          * A click or insertion whose argument holds values, built at render, over its parts.
+         *
+         * @param leaf the slot of the value, when the event is over one value and nothing else: the value is then
+         *             one component with the event on it ({@code style} has the value's style in it, and
+         *             {@code parts} is empty); -1 otherwise
          */
-        record Event(@NotNull Style style, @NotNull String action, @NotNull Argument argument, @NotNull List<Part> parts) implements Part {
+        record Event(@NotNull Style style, @NotNull String action, @NotNull Argument argument, @NotNull List<Part> parts,
+                     int leaf) implements Part {
         }
 
         /**
          * A {@code show_text} hover whose text holds values, built at render, over its parts.
+         *
+         * @param leaf as {@link Event#leaf}
          */
-        record Hover(@NotNull Style style, @NotNull InlineText text, @NotNull List<Part> parts) implements Part {
+        record Hover(@NotNull Style style, @NotNull InlineText text, @NotNull List<Part> parts, int leaf) implements Part {
         }
 
         /**
@@ -361,9 +368,9 @@ final class NativeCompiler {
                     }
                     out.add(shell.children(rendered));
                 }
-                case Part.Event(Style style, String action, Argument argument, List<Part> children) -> {
-                    List<Component> rendered = renderParts(children, values, inline);
-                    if (rendered == null) {
+                case Part.Event(Style style, String action, Argument argument, List<Part> children, int leaf) -> {
+                    List<Component> rendered = leaf >= 0 ? null : renderParts(children, values, inline);
+                    if (rendered == null && leaf < 0) {
                         return null;
                     }
                     String value = argument.render(inline);
@@ -374,15 +381,24 @@ final class NativeCompiler {
                     if (event == null) {
                         return null;
                     }
-                    out.add(Component.text("", event).children(rendered));
+                    if (rendered == null) {
+                        addLeaf(out, values[leaf], event);
+                    } else {
+                        out.add(Component.text("", event).children(rendered));
+                    }
                 }
-                case Part.Hover(Style style, InlineText text, List<Part> children) -> {
-                    List<Component> rendered = renderParts(children, values, inline);
-                    Component hover = rendered == null ? null : text.render(inline);
+                case Part.Hover(Style style, InlineText text, List<Part> children, int leaf) -> {
+                    List<Component> rendered = leaf >= 0 ? null : renderParts(children, values, inline);
+                    Component hover = rendered == null && leaf < 0 ? null : text.render(inline);
                     if (hover == null) {
                         return null;
                     }
-                    out.add(Component.text("", style.hoverEvent(HoverEvent.showText(hover))).children(rendered));
+                    Style event = style.hoverEvent(HoverEvent.showText(hover));
+                    if (rendered == null) {
+                        addLeaf(out, values[leaf], event);
+                    } else {
+                        out.add(Component.text("", event).children(rendered));
+                    }
                 }
                 case Part.Translatable(Style style, String key, String fallback, List<Object> arguments, List<Part> children) -> {
                     List<Component> rendered = renderParts(children, values, inline);
@@ -410,6 +426,17 @@ final class NativeCompiler {
             }
         }
         return out;
+    }
+
+    /**
+     * A value as one component with an event's style on it: the event is not on a component of its own around it.
+     */
+    private static void addLeaf(@NotNull List<Component> out, @Nullable Object value, @NotNull Style style) {
+        if (value instanceof String text) {
+            out.add(Component.text(text, style));
+        } else if (value != null) {
+            out.add(styled((Component) value, style));
+        }
     }
 
     /**
@@ -708,16 +735,34 @@ final class NativeCompiler {
                         List<Item> items = items(element.children, Style.empty());
                         parts.add(new Part.Transform(style, element.change, items, new Palettes(items, style)));
                     } else if (element.dynamic instanceof InlineText text) {
-                        parts.add(new Part.Hover(style, text, merge(reduce(element.children, Style.empty()))));
+                        List<Part> inner = merge(reduce(element.children, Style.empty()));
+                        Part.Value only = onlyValue(inner);
+                        // A value with a hover of its own keeps it: it stays under this one.
+                        parts.add(only != null && only.style().hoverEvent() == null
+                                ? new Part.Hover(under(only, style), text, List.of(), only.slot())
+                                : new Part.Hover(style, text, inner, -1));
                     } else if (element.dynamic instanceof DynamicTranslatable(String key, String fallback, List<Object> arguments)) {
                         parts.add(new Part.Translatable(style, key, fallback, arguments, merge(reduce(element.children, Style.empty()))));
                     } else if (element.action != null) {
-                        parts.add(new Part.Event(style, element.action.toLowerCase(Locale.ROOT), element.argument,
-                                merge(reduce(element.children, Style.empty()))));
+                        String action = element.action.toLowerCase(Locale.ROOT);
+                        List<Part> inner = merge(reduce(element.children, Style.empty()));
+                        Part.Value only = onlyValue(inner);
+                        // A value with an event of the same kind on it keeps its own: it stays under this one.
+                        boolean free = only != null && (action.equals("insert") ? only.style().insertion() == null
+                                : only.style().clickEvent() == null);
+                        parts.add(free ? new Part.Event(under(only, style), action, element.argument, List.of(), only.slot())
+                                : new Part.Event(style, action, element.argument, inner, -1));
                     } else if (hasEvents(element.style) || element.base != null) {
-                        // An event stays on its parent; a keybind or translatable wraps what follows it.
-                        parts.add(new Part.Group(style, merge(reduce(element.children, Style.empty())),
-                                element.base == null ? Component.text("", style) : element.base.style(style)));
+                        List<Part> inner = merge(reduce(element.children, Style.empty()));
+                        Part only = element.base == null ? pushedDown(inner, style) : null;
+                        if (only != null) {
+                            // An event over one value and nothing else goes on the value: one component, not two.
+                            parts.add(only);
+                        } else {
+                            // An event stays on its parent; a keybind or translatable wraps what follows it.
+                            parts.add(new Part.Group(style, inner,
+                                    element.base == null ? Component.text("", style) : element.base.style(style)));
+                        }
                     } else {
                         parts.addAll(reduce(element.children, style));
                     }
@@ -749,6 +794,40 @@ final class NativeCompiler {
             }
         }
         return items;
+    }
+
+    /**
+     * The value, when parts are one value and nothing else.
+     */
+    private static @Nullable Part.Value onlyValue(@NotNull List<Part> parts) {
+        return parts.size() == 1 && parts.getFirst() instanceof Part.Value value ? value : null;
+    }
+
+    /**
+     * The style of a value under the style of the tag around it: what the value's component would inherit from a
+     * component of the tag's.
+     */
+    private static @NotNull Style under(@NotNull Part.Value value, @NotNull Style around) {
+        return value.style().merge(around, Style.Merge.Strategy.IF_ABSENT_ON_TARGET);
+    }
+
+    /**
+     * When parts are one value, or one event built at render on a value ({@code leaf}), and nothing else: that part
+     * with a fixed style around it put on it, as its component would inherit it. Null otherwise.
+     */
+    private static @Nullable Part pushedDown(@NotNull List<Part> parts, @NotNull Style around) {
+        if (parts.size() != 1) {
+            return null;
+        }
+        return switch (parts.getFirst()) {
+            case Part.Value value -> new Part.Value(value.slot(), under(value, around), new Styled());
+            case Part.Event event when event.leaf() >= 0 -> new Part.Event(
+                    event.style().merge(around, Style.Merge.Strategy.IF_ABSENT_ON_TARGET), event.action(), event.argument(),
+                    List.of(), event.leaf());
+            case Part.Hover hover when hover.leaf() >= 0 -> new Part.Hover(
+                    hover.style().merge(around, Style.Merge.Strategy.IF_ABSENT_ON_TARGET), hover.text(), List.of(), hover.leaf());
+            default -> null;
+        };
     }
 
     private static boolean hasEvents(@NotNull Style style) {

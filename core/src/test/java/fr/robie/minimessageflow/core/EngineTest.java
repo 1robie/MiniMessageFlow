@@ -491,6 +491,52 @@ class EngineTest {
     }
 
     @Test
+    @DisplayName("A click, hover or insertion over one value is on the value's component, and shows as MiniMessage's")
+    void eventOverOneValue() {
+        MiniMessageFlow stageOne = MiniMessageFlow.builder().nativeCompiler(false).build();
+        Component styled = Component.text("Gold", NamedTextColor.GOLD)
+                .clickEvent(net.kyori.adventure.text.event.ClickEvent.suggestCommand("/own"))
+                .hoverEvent(net.kyori.adventure.text.event.HoverEvent.showText(Component.text("own")))
+                .insertion("own").append(Component.text(" child"));
+        Placeholder[] given = {
+                Placeholder.of("name", "Steve", "id", "42"), Placeholder.of("name", "", "id", ""),
+                Placeholder.builder().register("name", Component.text("plain")).register("id", "7").build(),
+                Placeholder.builder().register("name", styled).register("id", "7").build(),
+        };
+        // The whole message is the value's component: nothing around it.
+        String[] leaves = {
+                "<click:run_command:'/x'>%name%", "<hover:show_text:'<red>hi'><b>%name%</b></hover>", "<insert:x>%name%",
+                "<red><click:run_command:'/x'><hover:show_text:'hi'><u>%name%",
+                "<click:run_command:'/tp %id%'>%name%</click>", "<insert:'%id%'><green>%name%",
+                "<hover:show_text:'<gray>id %id%'>%name%", "<click:open_url:'https://x.com/'><hover:show_text:'%id%'>%name%",
+        };
+        // An event of the same kind on the value's own tag, or something besides the value: still as MiniMessage's.
+        String[] others = {
+                "<click:run_command:'/a %id%'><click:run_command:'/b'>%name%", "<hover:show_text:'%id%'><hover:show_text:'in'>%name%",
+                "<insert:'%id%'><insert:in>%name%", "<click:run_command:'/a'><click:run_command:'/b %id%'>%name%",
+                "<click:run_command:'/x'>%name% </click>", "<click:run_command:'/x %id%'>[%name%]", "<hover:show_text:'%id%'>%name%%id%",
+                "<click:run_command:'/x'><key:key.jump>%name%", "a <click:run_command:'/x'>%name%</click> b <hover:show_text:'%id%'>%name%",
+                // Two events built at render: the inner one is on the value, the outer one around it.
+                "<click:run_command:'/x %id%'><hover:show_text:'%id%'>%name%",
+        };
+        for (boolean leaf : new boolean[]{true, false}) {
+            for (String message : leaf ? leaves : others) {
+                Template template = this.flow.compile(message);
+                assertEquals(Template.Kind.NATIVE, template.kind(), message);
+                Template expected = stageOne.compile(message);
+                for (Placeholder placeholder : given) {
+                    Component rendered = template.render(placeholder);
+                    assertEquals(ComponentRuns.of(expected.render(placeholder)), ComponentRuns.of(rendered),
+                            message + " with " + placeholder.getMap());
+                    if (leaf && placeholder != given[3]) {
+                        assertTrue(rendered.children().isEmpty(), message + ": " + rendered);
+                    }
+                }
+            }
+        }
+    }
+
+    @Test
     @DisplayName("A value in a hover's text or a translation argument is placed at render, as MiniMessage would read it")
     void valuesInHoverAndTranslation() {
         MiniMessageFlow stageOne = MiniMessageFlow.builder().nativeCompiler(false).build();
