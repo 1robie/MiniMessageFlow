@@ -12,6 +12,7 @@ adventure-api = { module = "net.kyori:adventure-api", version.ref = "adventure4"
 adventure-minimessage = { module = "net.kyori:adventure-text-minimessage", version.ref = "adventure4" }
 adventure-serializer-plain = { module = "net.kyori:adventure-text-serializer-plain", version.ref = "adventure4" }
 adventure-serializer-legacy = { module = "net.kyori:adventure-text-serializer-legacy", version.ref = "adventure4" }
+adventure-serializer-gson = { module = "net.kyori:adventure-text-serializer-gson", version.ref = "adventure4" }
 adventure5-api = { module = "net.kyori:adventure-api", version.ref = "adventure5" }
 annotations = { module = "org.jetbrains:annotations", version.ref = "annotations" }
 junit-bom = { module = "org.junit:junit-bom", version.ref = "junit" }

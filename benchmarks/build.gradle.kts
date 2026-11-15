@@ -11,6 +11,8 @@ dependencies {
     jmh(libs.adventure.api)
     jmh(libs.adventure.minimessage)
     jmh(libs.adventure.serializer.plain)
+    // RenderBenchmark's ...Send: the JSON a server sends.
+    jmh(libs.adventure.serializer.gson)
     jmh(libs.annotations)
 }
 
