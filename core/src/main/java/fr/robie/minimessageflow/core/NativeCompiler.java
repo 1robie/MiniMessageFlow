@@ -338,6 +338,26 @@ final class NativeCompiler {
      * with a style or children): such a render goes through MiniMessage
      */
     static @Nullable Component render(@NotNull List<Part> parts, @Nullable Object @NotNull [] values, @NotNull String @NotNull [] inline) {
+        if (parts.size() == 1) {
+            // One part is the message: its component, without a list to take it from.
+            switch (parts.getFirst()) {
+                case Part.Fixed(Component component) -> {
+                    return component;
+                }
+                case Part.Value(int slot, Style style, Styled memo) -> {
+                    Object value = values[slot];
+                    if (value instanceof String text) {
+                        return style.isEmpty() ? Component.text(text) : Component.text(text, style);
+                    }
+                    if (value != null) {
+                        return style.isEmpty() ? (Component) value : memo.apply((Component) value, style);
+                    }
+                    return Component.empty();
+                }
+                default -> {
+                }
+            }
+        }
         List<Component> children = renderParts(parts, values, inline);
         if (children == null) {
             return null;

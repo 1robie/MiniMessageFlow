@@ -13,6 +13,8 @@
 - A click, hover or insertion over one value and nothing else (`<click:run_command:'/buy'>%item%`) is on the
   value's own component, not on an empty component around it; so is one whose argument or hover text holds values.
   It shows the same. The shop line ending in `<click:run_command:'/buy 42'>%n%`: 648 B to 368 B per render.
+- A natively compiled message of one part (`<green>%item%`) is rendered without a list: 128 B to 48 B, the text
+  component alone.
 
 ## 1.1.0
 
