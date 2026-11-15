@@ -424,16 +424,22 @@ public final class Engine {
                 return given;
             }
         }
-        PlaceholderValue value = placeholders.get(key);
-        if (value != null) {
+        // A text value is a String, read as it is; any other is a PlaceholderValue.
+        Object raw = placeholders.raw(key);
+        if (raw instanceof String text) {
+            return text;
+        }
+        if (raw != null) {
+            PlaceholderValue value = (PlaceholderValue) raw;
             return value.isComponent() ? this.toComponent(key, value, viewer) : this.plainText(key, value, viewer);
         }
         for (int i = 0; i < bases.length; i++) {
-            PlaceholderValue base = placeholders.get(bases[i]);
+            Object base = placeholders.raw(bases[i]);
             if (base != null) {
                 // The first key with a value is the one read, whether or not its modifiers apply.
                 PlaceholderModifiers.Chain chain = plan.chains[i];
-                String text = chain == null ? null : chain.apply(this.plainText(bases[i], base, viewer));
+                String text = chain == null ? null : chain.apply(base instanceof String string ? string
+                        : this.plainText(bases[i], (PlaceholderValue) base, viewer));
                 if (text != null) {
                     return text;
                 }

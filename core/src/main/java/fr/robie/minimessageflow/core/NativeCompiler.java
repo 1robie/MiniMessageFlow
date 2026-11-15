@@ -329,17 +329,17 @@ final class NativeCompiler {
                 }
                 return text;
             }
-            StringBuilder out = new StringBuilder(32);
-            for (Object piece : this.pieces) {
-                if (piece instanceof Inline(int index)) {
-                    String value = inline[index];
-                    if (!this.quoted && value.indexOf(':') >= 0) {
-                        return null;
-                    }
-                    out.append(value);
-                } else {
-                    out.append((String) piece);
+            int length = 0;
+            for (Object piece : pieces) {
+                String part = piece instanceof Inline(int index) ? inline[index] : (String) piece;
+                if (piece instanceof Inline && !this.quoted && part.indexOf(':') >= 0) {
+                    return null;
                 }
+                length += part.length();
+            }
+            StringBuilder out = new StringBuilder(length);
+            for (Object piece : pieces) {
+                out.append(piece instanceof Inline(int index) ? inline[index] : (String) piece);
             }
             return out.toString();
         }
@@ -403,14 +403,29 @@ final class NativeCompiler {
     record Run(@NotNull Style style, @NotNull Object @NotNull [] pieces) {
         @NotNull String text(@NotNull String @NotNull [] values) {
             Object[] pieces = this.pieces;
-            if (pieces.length == 1) {
-                return piece(pieces[0], values);
+            // The usual shapes in one string of the exact length; more pieces with a builder of that length.
+            switch (pieces.length) {
+                case 1 -> {
+                    return piece(pieces[0], values);
+                }
+                case 2 -> {
+                    return piece(pieces[0], values) + piece(pieces[1], values);
+                }
+                case 3 -> {
+                    return piece(pieces[0], values) + piece(pieces[1], values) + piece(pieces[2], values);
+                }
+                default -> {
+                    int length = 0;
+                    for (Object piece : pieces) {
+                        length += piece(piece, values).length();
+                    }
+                    StringBuilder out = new StringBuilder(length);
+                    for (Object piece : pieces) {
+                        out.append(piece(piece, values));
+                    }
+                    return out.toString();
+                }
             }
-            StringBuilder out = new StringBuilder(32);
-            for (Object piece : pieces) {
-                out.append(piece(piece, values));
-            }
-            return out.toString();
         }
 
         private static @NotNull String piece(@NotNull Object piece, @NotNull String @NotNull [] values) {
@@ -568,16 +583,18 @@ final class NativeCompiler {
                     if (rendered == null) {
                         return null;
                     }
-                    List<Component> with = new ArrayList<>(arguments.size());
-                    for (Object argument : arguments) {
+                    Component[] with = new Component[arguments.size()];
+                    for (int i = 0; i < with.length; i++) {
+                        Object argument = arguments.get(i);
                         Component component = argument instanceof InlineText text ? text.render(inline) : (Component) argument;
                         if (component == null) {
                             return null;
                         }
-                        with.add(component);
+                        with[i] = component;
                     }
-                    Component base = fallback == null ? Component.translatable(key, with) : Component.translatable(key, fallback, with);
-                    out.push(base.style(style).children(rendered));
+                    // Made once with its style and arguments: each of style(...) and children(...) would copy them.
+                    Component translatable = Component.translatable(key, fallback, style, Arrays.asList(with));
+                    out.push(rendered.isEmpty() ? translatable : translatable.children(rendered));
                 }
                 case Part.Transform(Style style, ColorChange change, List<Item> items, Palettes palettes) -> {
                     Component colored = transform(style, change, items, values, palettes);

@@ -255,4 +255,28 @@ class PlaceholderTest {
             assertEquals(expected.keySet(), copy.getMap().keySet());
         }
     }
+
+    @Test
+    @DisplayName("A text value is kept as its text and given as a static value; other values as they are")
+    void textKeptAsText() throws Exception {
+        java.util.function.Supplier<String> supplier = () -> "now";
+        Placeholder.Builder builder = Placeholder.builder().register("a", "x").register("b", supplier).register("c", (String) null);
+        for (int i = 0; i < 10; i++) {
+            builder.register("k" + i, "v" + i); // more than 8: a map
+        }
+        Placeholder small = Placeholder.builder().register("a", "x").register("b", supplier).register("c", (String) null).build();
+        for (Placeholder placeholder : new Placeholder[]{small, builder.build(), Placeholder.of("a", "x"), Placeholder.of("a", "x", "z", "y")}) {
+            assertEquals("x", placeholder.get("a").evaluate(null));
+            assertFalse(placeholder.get("a").isComponent());
+            assertEquals(placeholder.get("a"), placeholder.getMap().get("a"));
+            assertEquals("x", placeholder.parse("%a%"));
+            Object raw = placeholder.raw("a");
+            assertTrue(raw.equals("x") || raw.equals(placeholder.get("a")), "the text, or its value in a map");
+            assertNull(placeholder.raw("missing"));
+        }
+        assertEquals("now", small.get("b").evaluate(null));
+        assertEquals("", small.get("c").evaluate(null));
+        assertEquals("x", small.raw("a"));
+        assertEquals("x", Placeholder.builder().registerAll(small).build().raw("a"), "copied as its text");
+    }
 }

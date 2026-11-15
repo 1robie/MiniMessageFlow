@@ -4,6 +4,7 @@ import fr.robie.minimessageflow.internal.PlaceholderScanner;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.ComponentLike;
 import net.kyori.adventure.pointer.Pointered;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -61,8 +62,9 @@ public final class Placeholder {
     private static final Placeholder EMPTY = new Placeholder(NO_ENTRIES, 0, null, false);
 
     /**
-     * Each key ({@code String}) followed by its value ({@code PlaceholderValue}), {@code size} pairs, when there are
-     * at most {@link #SMALL}; null with a map.
+     * Each key ({@code String}) followed by its value, {@code size} pairs, when there are at most {@link #SMALL}; null
+     * with a map. A text value is kept as its {@code String}, wrapped only when {@link #get} is asked for it: the
+     * engine reads it as it is ({@link #raw}). Any other value is its {@code PlaceholderValue}.
      */
     private final Object @Nullable [] entries;
     private final int size;
@@ -83,7 +85,7 @@ public final class Placeholder {
         this.hasViewerValues = hasViewerValues;
     }
 
-    private static @NotNull Placeholder one(@NotNull String key, @NotNull PlaceholderValue value, boolean viewer) {
+    private static @NotNull Placeholder one(@NotNull String key, @NotNull Object value, boolean viewer) {
         return new Placeholder(new Object[]{key, value}, 1, null, viewer);
     }
 
@@ -98,7 +100,7 @@ public final class Placeholder {
             // Made once, on demand: an immutable map, safe to publish without a lock.
             Map<String, PlaceholderValue> built = new HashMap<>(this.size * 2);
             for (int i = 0; i < this.size; i++) {
-                built.put((String) this.entries[2 * i], (PlaceholderValue) this.entries[2 * i + 1]);
+                built.put((String) this.entries[2 * i], wrap(this.entries[2 * i + 1]));
             }
             map = Map.copyOf(built);
             this.map = map;
@@ -122,6 +124,16 @@ public final class Placeholder {
      * @return the value, or null if none is registered
      */
     public @Nullable PlaceholderValue get(@NotNull String key) {
+        Object value = this.raw(key);
+        return value == null ? null : wrap(value);
+    }
+
+    /**
+     * The value registered for a key as it is kept: a {@code String} for a text value, else its
+     * {@code PlaceholderValue}; null if none is registered. For the engine, which reads a text without wrapping it.
+     */
+    @ApiStatus.Internal
+    public @Nullable Object raw(@NotNull String key) {
         Object[] entries = this.entries;
         if (entries == null) {
             return this.map.get(key);
@@ -129,22 +141,26 @@ public final class Placeholder {
         for (int i = 0, end = 2 * this.size; i < end; i += 2) {
             Object k = entries[i];
             if (k == key || k.equals(key)) {
-                return (PlaceholderValue) entries[i + 1];
+                return entries[i + 1];
             }
         }
         return null;
     }
 
+    private static @NotNull PlaceholderValue wrap(@NotNull Object value) {
+        return value instanceof String text ? PlaceholderValue.ofStatic(text) : (PlaceholderValue) value;
+    }
+
     /**
      * Calls the action with each key and its value.
      */
-    private void forEach(@NotNull java.util.function.BiConsumer<String, PlaceholderValue> action) {
+    private void forEach(@NotNull java.util.function.BiConsumer<String, Object> action) {
         if (this.entries == null) {
             this.map.forEach(action);
             return;
         }
         for (int i = 0; i < this.size; i++) {
-            action.accept((String) this.entries[2 * i], (PlaceholderValue) this.entries[2 * i + 1]);
+            action.accept((String) this.entries[2 * i], this.entries[2 * i + 1]);
         }
     }
 
@@ -173,10 +189,14 @@ public final class Placeholder {
         // Only the keys found in the message are evaluated, each once.
         Map<String, String> evaluated = new HashMap<>(4);
         Function<String, String> lookup = key -> {
-            PlaceholderValue value = this.get(key);
-            if (value == null) {
+            Object raw = this.raw(key);
+            if (raw == null) {
                 return null;
             }
+            if (raw instanceof String text) {
+                return text;
+            }
+            PlaceholderValue value = (PlaceholderValue) raw;
             return evaluated.computeIfAbsent(key, k -> {
                 try {
                     return value.evaluate(viewer);
@@ -221,7 +241,7 @@ public final class Placeholder {
      * @return a Placeholder containing the single key-value pair
      */
     public static @NotNull Placeholder of(@NotNull String key, String value) {
-        return one(key, PlaceholderValue.ofStatic(value == null ? "" : value), false);
+        return one(key, value == null ? "" : value, false);
     }
 
     /**
@@ -292,11 +312,11 @@ public final class Placeholder {
      */
     public static @NotNull Placeholder of(@NotNull String key1, String value1,
                                           @NotNull String key2, String value2) {
-        PlaceholderValue second = PlaceholderValue.ofStatic(value2 == null ? "" : value2);
+        String second = value2 == null ? "" : value2;
         if (key1.equals(key2)) {
             return one(key2, second, false); // the last one wins, as in a builder
         }
-        return new Placeholder(new Object[]{key1, PlaceholderValue.ofStatic(value1 == null ? "" : value1), key2, second}, 2, null, false);
+        return new Placeholder(new Object[]{key1, value1 == null ? "" : value1, key2, second}, 2, null, false);
     }
 
     /**
@@ -347,7 +367,10 @@ public final class Placeholder {
         /**
          * Sets a key's value, replacing the one it had.
          */
-        private void put(@NotNull String key, @NotNull PlaceholderValue value) {
+        /**
+         * @param value a {@code String} (text) or a {@code PlaceholderValue}
+         */
+        private void put(@NotNull String key, @NotNull Object value) {
             java.util.Objects.requireNonNull(key, "key cannot be null");
             if (this.built) {
                 this.entries = this.entries.clone();
@@ -357,7 +380,7 @@ public final class Placeholder {
                 this.built = false;
             }
             if (this.map != null) {
-                this.map.put(key, value);
+                this.map.put(key, wrap(value));
                 return;
             }
             for (int i = 0, end = 2 * this.size; i < end; i += 2) {
@@ -369,9 +392,9 @@ public final class Placeholder {
             if (this.size == SMALL) {
                 Map<String, PlaceholderValue> map = new HashMap<>(SMALL * 4);
                 for (int i = 0; i < this.size; i++) {
-                    map.put((String) this.entries[2 * i], (PlaceholderValue) this.entries[2 * i + 1]);
+                    map.put((String) this.entries[2 * i], wrap(this.entries[2 * i + 1]));
                 }
-                map.put(key, value);
+                map.put(key, wrap(value));
                 this.map = map;
                 return;
             }
@@ -391,7 +414,7 @@ public final class Placeholder {
          * @return this Builder instance for method chaining
          */
         public @NotNull Builder register(@NotNull String key, String value) {
-            this.put(key, PlaceholderValue.ofStatic(value == null ? "" : value));
+            this.put(key, value == null ? "" : value);
             return this;
         }
 

@@ -47,6 +47,13 @@
   a colour 206 ns and 466 B to 143 ns and 364 B on 4.17, 133 ns and 474 B to 74 ns and 262 B on 5.2; three values
   and a click 131 to 104 ns and 411 to 325 B on 4.17, 102 to 62 ns and 403 to 238 B on 5.2; a gradient 247 to
   168 ns and 624 to 498 B on 4.17, 154 to 78 ns and 643 to 373 B on 5.2.
+- A `Placeholder` keeps a text value as its `String`, not wrapped in a `PlaceholderValue`: `get(key)` wraps it when
+  asked, and the engine reads it as it is (`raw(key)`, internal). One value: 72 B to 56 B; two: 96 B to 64 B; three
+  values built and rendered: 33 ns and 160 B to 31 ns and 112 B.
+- A translation with values in its arguments (`<lang:key:'%name%'>`) is made once with its style and arguments,
+  instead of made, then given its style, then its children, each copying the arguments again: 114 ns and 505 B to
+  78 ns and 387 B on 4.17, 141 ns and 576 B to 84 ns and 387 B on 5.2.
+- The text of a hover or a tag argument with values is joined at its exact length.
 - `-Pjmh.jvmArgs=...` passes JVM arguments to the benchmark forks.
 - `RenderBenchmark`: renders with values that change at each send (16 sets made before the run), so a render is
   measured rather than the last render given again; `...Send` adds the JSON serialisation.
