@@ -69,9 +69,18 @@ final class CompiledTemplate implements Template {
     /**
      * The last render, given again while the values are the same: a message sent to many players with the same
      * values, a line drawn again with nothing changed. Not volatile: a thread that sees an older one only misses.
+     * Alone on its cache lines: when one thread keeps a render, the others read again this field, not the rest.
      */
-    private @Nullable Last last;
+    private final Padded<Last> last = new Padded<>();
+    /**
+     * After a miss, a render is kept about once in this many when the last one kept was given again at least once...
+     */
     private static final int KEEP_ONE_IN = 8;
+    /**
+     * ...and once in this many when it never was: values that change at each render then seldom write a field every
+     * thread reads (8 threads on one template: such a write costs more than the render).
+     */
+    private static final int KEEP_RARELY = 64;
     private static final Object[] NO_VALUES = new Object[0];
 
     CompiledTemplate(@NotNull Engine engine, @NotNull String source, @NotNull String compiled, @NotNull Engine.Slots slots,
@@ -192,8 +201,8 @@ final class CompiledTemplate implements Template {
         // While every value is the last render's, nothing is allocated: the arrays are made at the first that differs,
         // and a render with the same values gives the last component again. Each value a String (plain text), a
         // Component, or null.
-        Last last = this.last;
-        Object[] keptValues = last == null ? null : last.values();
+        Last last = this.last.get();
+        Object[] keptValues = last == null ? null : last.values;
         Object[] values = null;
         Set<Integer> unknown = null;
         for (int slot = 0; slot < size; slot++) {
@@ -224,7 +233,7 @@ final class CompiledTemplate implements Template {
         String[] inline = null;
         boolean inlineSame = true;
         if (this.pieces != null) {
-            String[] keptInline = last == null ? null : last.inline();
+            String[] keptInline = last == null ? null : last.inline;
             int count = this.inlineKeys.size();
             for (int i = 0; i < count; i++) {
                 int source = this.inlineSources[i];
@@ -256,18 +265,22 @@ final class CompiledTemplate implements Template {
         }
         // Every value has been asked for (a supplier, a resolver): what is built from them depends on nothing else.
         if (values == null && inlineSame && last != null) {
-            return last.component();
+            if (!last.reused) {
+                // Written once per kept render: renders of this template do come again.
+                last.reused = true;
+            }
+            return last.component;
         }
         if (values == null) {
             // The same values, other inline texts: the last render's values, which are never changed.
             values = keptValues != null ? keptValues : NO_VALUES;
         }
         Component rendered = this.build(values, unknown, inline);
-        // Kept after about one miss in eight: values that come again are kept within a few renders, and values that
-        // change at each render seldom write a field all the threads read (8 threads: a write per render cost a
-        // third more time). The arrays are this render's own and are never changed: kept as they are.
-        if (last == null || ThreadLocalRandom.current().nextInt(KEEP_ONE_IN) == 0) {
-            this.last = new Last(values, inline, rendered);
+        // Kept after about one miss in eight while kept renders are given again (values that come again are kept within
+        // a few renders), one in 64 while they are not (values that change at each render). The arrays are this
+        // render's own and are never changed: kept as they are.
+        if (last == null || ThreadLocalRandom.current().nextInt(last.reused ? KEEP_ONE_IN : KEEP_RARELY) == 0) {
+            this.last.set(new Last(values, inline, rendered));
         }
         return rendered;
     }
@@ -276,7 +289,21 @@ final class CompiledTemplate implements Template {
      * The values and inline texts of the last render, and what it gave. Shared by the threads that render: immutable,
      * and any one of them is right to keep.
      */
-    private record Last(@Nullable Object @NotNull [] values, @NotNull String @Nullable [] inline, @NotNull Component component) {
+    private static final class Last {
+        final @Nullable Object @NotNull [] values;
+        final @NotNull String @Nullable [] inline;
+        final @NotNull Component component;
+        /**
+         * Whether a render gave it again. Not volatile: a thread that sees it late only keeps a render less often.
+         */
+        boolean reused;
+
+        Last(@Nullable Object @NotNull [] values, @NotNull String @Nullable [] inline, @NotNull Component component) {
+            this.values = values;
+            this.inline = inline;
+            this.component = component;
+        }
+
         /**
          * Whether a render with these values gives the same component: the same text, the same component instance
          * (a component is compared by identity: equals would walk it, and a new one is rarely equal).

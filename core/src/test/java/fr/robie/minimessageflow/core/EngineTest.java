@@ -841,6 +841,29 @@ class EngineTest {
         assertEquals("1 2 1 3", PLAIN.serialize(template.render(Placeholder.of(java.util.Map.of("a", "1", "b", "2", "c", "3")))));
     }
 
+    @Test
+    @DisplayName("After values that change at each render, values that come again are still given again")
+    void lastRenderAfterChangingValues() {
+        Template template = this.flow.compile("<green>Welcome %name%!");
+        for (int i = 0; i < 1000; i++) {
+            template.render(Placeholder.of("name", "P" + i));
+        }
+        Placeholder same = Placeholder.of("name", "Steve");
+        Component first = template.render(same);
+        int renders = 1;
+        Component next = template.render(same);
+        // Kept about once in 64 renders while no kept render was given again: well within 5000.
+        while (next != template.render(same) && renders < 5000) {
+            next = template.render(same);
+            renders++;
+        }
+        assertTrue(renders < 5000, "the repeated values are kept");
+        assertEquals(first, next);
+        for (int i = 0; i < 100; i++) {
+            assertSame(next, template.render(same), "given again while the values are the same");
+        }
+    }
+
     private static Object clickOf(Component component) {
         if (component.clickEvent() != null) {
             return component.clickEvent();

@@ -54,6 +54,18 @@
   instead of made, then given its style, then its children, each copying the arguments again: 114 ns and 505 B to
   78 ns and 387 B on 4.17, 141 ns and 576 B to 84 ns and 387 B on 5.2.
 - The text of a hover or a tag argument with values is joined at its exact length.
+- Renders of one template on several threads wait less for each other. The last render a template keeps, and the
+  styled copy of a component value it remembers, are on cache lines of their own, away from what every render reads.
+  A render is kept after about one miss in 8 while kept renders are given again, one in 64 while they are not
+  (values that change at each send), so such values seldom write a field every thread reads; a component value is
+  noted about one render in 8. On 8 threads (JMH, `SharedRenderBenchmark`, values changing at each render):
+  `<green>Welcome %name%!` 96 to 54 ns, three values and a click with a component value 391 to 300 ns, a gradient
+  255 to 193 ns, the same values each time 35 to 27 ns. One thread: the same or faster, about 10 B less per render.
+- `SharedRenderBenchmark`: renders on templates shared by the threads (`-Pjmh.threads=8`).
+- `FastMiniMessageBenchmark` compares renders with values that change at each send and values set for each send
+  (`-PadventureVersion=5.2.0 -PfastMiniMessageVersion=2.0.0-beta.2`), and checks both give the same text first. On
+  5.2: three values and a click 54 ns and 231 B here, 103 ns and 608 B on FastMiniMessage 2.0.0-beta.2; five values
+  in five colours 58 ns and 246 B, 166 ns and 1,240 B; a gradient 69 ns and 362 B, 224 ns and 1,192 B.
 - `-Pjmh.jvmArgs=...` passes JVM arguments to the benchmark forks.
 - `RenderBenchmark`: renders with values that change at each send (16 sets made before the run), so a render is
   measured rather than the last render given again; `...Send` adds the JSON serialisation.

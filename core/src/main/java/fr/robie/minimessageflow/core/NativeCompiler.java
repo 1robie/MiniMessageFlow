@@ -25,6 +25,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.ThreadLocalRandom;
 
 /**
  * Compiles a message without MiniMessage, when every tag in it is one of the native set: colours ({@code <red>},
@@ -632,15 +633,12 @@ final class NativeCompiler {
      * value is then not styled again on each render.
      * <p>
      * Shared by the threads that render. A {@link Kept} is immutable; two threads may each make one, and either is
-     * right. A value is only kept the second time it is seen in a row, so values that change at each render cost
-     * nothing more than a field written.
+     * right. A value is only kept when it is seen again after being noted, so values that change at each render
+     * seldom write anything.
      */
-    static final class Styled {
-        private record Kept(@NotNull Component value, @NotNull Component styled) {
-        }
-
-        private @Nullable Component seen;
-        private @Nullable Kept kept;
+    static final class Styled extends StyledFields {
+        @SuppressWarnings("unused")
+        long q0, q1, q2, q3, q4, q5, q6, q7;
 
         @NotNull Component apply(@NotNull Component value, @NotNull Style style) {
             Kept kept = this.kept;
@@ -650,11 +648,27 @@ final class NativeCompiler {
             Component styled = styled(value, style);
             if (this.seen == value) {
                 this.kept = new Kept(value, styled);
-            } else {
+            } else if (ThreadLocalRandom.current().nextInt(SEEN_ONE_IN) == 0) {
+                // Noted about one render in eight: a value that comes again is seen again within a few renders, and
+                // values that change at each render seldom write a field all the threads read.
                 this.seen = value;
             }
             return styled;
         }
+    }
+
+    private static final int SEEN_ONE_IN = 8;
+
+    private record Kept(@NotNull Component value, @NotNull Component styled) {
+    }
+
+    /**
+     * {@link Styled}'s fields, between the padding of {@link PadBefore} and {@link Styled}'s own: the threads that
+     * render write them, and the parts next to them are read at every render.
+     */
+    private abstract static class StyledFields extends PadBefore {
+        @Nullable Component seen;
+        @Nullable Kept kept;
     }
 
     /**
