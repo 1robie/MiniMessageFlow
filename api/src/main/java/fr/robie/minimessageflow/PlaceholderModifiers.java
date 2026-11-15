@@ -11,6 +11,7 @@ import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.DoubleFunction;
 import java.util.function.Function;
+import java.util.function.LongFunction;
 import java.util.function.Predicate;
 
 /**
@@ -63,6 +64,15 @@ public final class PlaceholderModifiers {
      * The widest {@code pad:n}: a wider one fails (the token is kept), so a value can't build a huge string.
      */
     private static final int MAX_PAD = 256;
+    /**
+     * What {@link #whole} gives for a text it does not read.
+     */
+    static final long NOT_WHOLE = Long.MIN_VALUE;
+    /**
+     * A whole number of at most this many digits is a {@code double} exactly, under the 1e15 where
+     * {@link #formatNumber} stops writing whole numbers as digits.
+     */
+    private static final int WHOLE_DIGITS = 15;
     private static final Map<String, Modifier> MODIFIERS = new ConcurrentHashMap<>();
 
     static {
@@ -73,7 +83,7 @@ public final class PlaceholderModifiers {
         register("trim", (v, a) -> v.trim());
         register("length", (v, a) -> String.valueOf(v.length()));
         register("empty", (v, a) -> String.valueOf(v.isBlank()));
-        register("isnumber", (v, a) -> String.valueOf(parseNumber(v) != null));
+        register("isnumber", (v, a) -> String.valueOf(whole(v) != NOT_WHOLE || parseNumber(v) != null));
         register("safe", (v, a) -> {
             StringBuilder out = new StringBuilder(v.length());
             for (int i = 0; i < v.length(); i++) {
@@ -97,34 +107,52 @@ public final class PlaceholderModifiers {
             return "0".repeat(Math.max(0, width - v.length())) + v;
         });
 
-        register("int", numeric(d -> String.valueOf((long) d)));
-        register("round", numeric(d -> String.valueOf(Math.round(d))));
-        register("floor", numeric(d -> String.valueOf((long) Math.floor(d))));
-        register("ceil", numeric(d -> String.valueOf((long) Math.ceil(d))));
-        register("abs", numeric(d -> formatNumber(Math.abs(d))));
-        register("negative", numeric(d -> String.valueOf(d < 0)));
-        register("even", numeric(d -> String.valueOf(((long) d) % 2 == 0)));
-        register("0f", numeric(d -> String.format(Locale.US, "%.0f", d)));
-        register("1f", numeric(d -> String.format(Locale.US, "%.1f", d)));
-        register("2f", numeric(d -> String.format(Locale.US, "%.2f", d)));
-        register("3f", numeric(d -> String.format(Locale.US, "%.3f", d)));
+        register("int", numeric(d -> String.valueOf((long) d), Long::toString));
+        register("round", numeric(d -> String.valueOf(Math.round(d)), Long::toString));
+        register("floor", numeric(d -> String.valueOf((long) Math.floor(d)), Long::toString));
+        register("ceil", numeric(d -> String.valueOf((long) Math.ceil(d)), Long::toString));
+        register("abs", numeric(d -> formatNumber(Math.abs(d)), n -> Long.toString(Math.abs(n))));
+        register("negative", numeric(d -> String.valueOf(d < 0), n -> String.valueOf(n < 0)));
+        register("even", numeric(d -> String.valueOf(((long) d) % 2 == 0), n -> String.valueOf(n % 2 == 0)));
+        register("0f", numeric(d -> String.format(Locale.US, "%.0f", d), Long::toString));
+        register("1f", numeric(d -> String.format(Locale.US, "%.1f", d), n -> n + ".0"));
+        register("2f", numeric(d -> String.format(Locale.US, "%.2f", d), n -> n + ".00"));
+        register("3f", numeric(d -> String.format(Locale.US, "%.3f", d), n -> n + ".000"));
         register("comma", numeric(d -> d == Math.rint(d)
                 ? grouped((long) d)
-                : String.format(Locale.US, "%,.2f", d)));
-        register("add_one", numeric(d -> formatNumber(d + 1)));
-        register("remove_one", numeric(d -> formatNumber(d - 1)));
+                : String.format(Locale.US, "%,.2f", d), PlaceholderModifiers::grouped));
+        register("add_one", numeric(d -> formatNumber(d + 1), n -> formatWhole(n + 1)));
+        register("remove_one", numeric(d -> formatNumber(d - 1), n -> formatWhole(n - 1)));
         register("add", (v, a) -> {
+            long whole = whole(v), other = whole == NOT_WHOLE ? NOT_WHOLE : whole(a[0]);
+            if (other != NOT_WHOLE) {
+                return formatWhole(whole + other);
+            }
             Double d = parseNumber(v), n = parseNumber(a[0]);
             return d == null || n == null ? null : formatNumber(d + n);
         });
         register("sub", (v, a) -> {
+            long whole = whole(v), other = whole == NOT_WHOLE ? NOT_WHOLE : whole(a[0]);
+            if (other != NOT_WHOLE) {
+                return formatWhole(whole - other);
+            }
             Double d = parseNumber(v), n = parseNumber(a[0]);
             return d == null || n == null ? null : formatNumber(d - n);
         });
         register("plural", (v, a) -> {
-            Double d = parseNumber(v);
-            if (d == null || a.length < 2) {
+            if (a.length < 2) {
                 return null;
+            }
+            long whole = whole(v);
+            double d;
+            if (whole != NOT_WHOLE) {
+                d = whole;
+            } else {
+                Double parsed = parseNumber(v);
+                if (parsed == null) {
+                    return null;
+                }
+                d = parsed;
             }
             if (a.length >= 3) {
                 return d == 0 ? a[0] : Math.abs(d) == 1 ? a[1] : a[2];
@@ -315,11 +343,63 @@ public final class PlaceholderModifiers {
         return parts;
     }
 
-    private static @NotNull Modifier numeric(@NotNull DoubleFunction<String> function) {
+    /**
+     * @param function what the modifier gives for a number
+     * @param whole    the same for a whole number read by {@link #whole}: it must give what {@code function} gives
+     *                 for that number, without a {@code double} in between
+     */
+    private static @NotNull Modifier numeric(@NotNull DoubleFunction<String> function, @NotNull LongFunction<String> whole) {
         return (value, args) -> {
+            long n = whole(value);
+            if (n != NOT_WHOLE) {
+                return whole.apply(n);
+            }
             Double number = parseNumber(value);
             return number == null ? null : function.apply(number);
         };
+    }
+
+    /**
+     * Reads a whole number written with digits only ({@code 1250}, {@code -3}, {@code +7}, spaces around it), which
+     * is what most values are: nothing is allocated, where {@link #parseNumber} makes a {@code Double}.
+     *
+     * @return the number, or {@link #NOT_WHOLE} for any other text, which {@link #parseNumber} reads: a decimal, an
+     * exponent, more than 15 digits, and {@code -0} (a negative zero as a {@code double}, which {@code 0f} writes
+     * {@code -0})
+     */
+    static long whole(@NotNull String value) {
+        int start = 0;
+        int end = value.length();
+        while (start < end && value.charAt(start) <= ' ') {
+            start++;
+        }
+        while (end > start && value.charAt(end - 1) <= ' ') {
+            end--;
+        }
+        boolean negative = false;
+        if (start < end) {
+            char sign = value.charAt(start);
+            if (sign == '-' || sign == '+') {
+                negative = sign == '-';
+                start++;
+            }
+        }
+        int digits = end - start;
+        if (digits < 1 || digits > WHOLE_DIGITS) {
+            return NOT_WHOLE;
+        }
+        long n = 0;
+        for (int i = start; i < end; i++) {
+            char c = value.charAt(i);
+            if (c < '0' || c > '9') {
+                return NOT_WHOLE;
+            }
+            n = n * 10 + (c - '0');
+        }
+        if (negative) {
+            return n == 0 ? NOT_WHOLE : -n;
+        }
+        return n;
     }
 
     private static @Nullable Double parseNumber(@NotNull String value) {
@@ -335,6 +415,14 @@ public final class PlaceholderModifiers {
      * without reading a format on each call.
      */
     static @NotNull String grouped(long n) {
+        if (n > -1_000_000 && n < 1_000_000) {
+            // The usual sizes, as one string made at its final length.
+            if (n > -1_000 && n < 1_000) {
+                return Long.toString(n);
+            }
+            int low = (int) Math.abs(n % 1_000);
+            return "" + n / 1_000 + ',' + (char) ('0' + low / 100) + (char) ('0' + low / 10 % 10) + (char) ('0' + low % 10);
+        }
         String digits = Long.toString(n);
         int start = n < 0 ? 1 : 0;
         int count = digits.length() - start;
@@ -348,6 +436,13 @@ public final class PlaceholderModifiers {
             out.append(',').append(digits, i, i + 3);
         }
         return out.toString();
+    }
+
+    /**
+     * A whole number as {@link #formatNumber} writes it.
+     */
+    private static @NotNull String formatWhole(long n) {
+        return n > -1_000_000_000_000_000L && n < 1_000_000_000_000_000L ? Long.toString(n) : String.valueOf((double) n);
     }
 
     private static @NotNull String formatNumber(double d) {

@@ -6,6 +6,10 @@
   and `set(key, PlaceholderValue)` for the other kinds (a component computed at each render or for the viewer).
 - `MiniMessageFlow.format(String, Values)` and `format(String, Values, Pointered)`.
 - `Placeholder.Builder.register(key, PlaceholderValue)`.
+- A number modifier (`comma`, `int`, `2f`, `add`, `plural`...) on a whole number written with digits only (`1250`,
+  `-3`, up to 15 digits) reads it without a `double`, and `comma` writes numbers under a million as one string.
+  The results are the same. `comma` on `1250`: 31 ns and 176 B to 11 ns and 48 B; the shop line with
+  `%price.comma%`: 88 ns and 488 B to 69 ns and 360 B (a loop on JDK 21, not JMH).
 
 ## 1.1.0
 

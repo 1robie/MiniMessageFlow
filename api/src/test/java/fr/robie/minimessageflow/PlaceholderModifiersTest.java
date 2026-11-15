@@ -92,7 +92,7 @@ class PlaceholderModifiersTest {
     @DisplayName("Whole numbers are grouped as String.format groups them")
     void grouped() {
         long[] edges = {0, 1, -1, 12, 123, 999, 1000, -1000, 1234, 12345, 123456, 1234567, -1234567,
-                999_999, 1_000_000, Long.MAX_VALUE, Long.MIN_VALUE};
+                1001, -1001, 100_000, -100_000, 999_999, -999_999, 1_000_000, -1_000_000, Long.MAX_VALUE, Long.MIN_VALUE};
         for (long n : edges) {
             assertEquals(String.format(java.util.Locale.US, "%,d", n), PlaceholderModifiers.grouped(n));
         }
@@ -103,6 +103,31 @@ class PlaceholderModifiersTest {
         }
         assertEquals("1,250", parse("%price.comma%", Placeholder.of("price", "1250")));
         assertEquals("1,250.50", parse("%price.comma%", Placeholder.of("price", "1250.5")));
+    }
+
+    @Test
+    @DisplayName("A whole number read without a double gives what the same number read as a double gives")
+    void wholeNumbers() {
+        String[] modifiers = {"int", "round", "floor", "ceil", "abs", "negative", "even", "0f", "1f", "2f", "3f", "comma",
+                "add_one", "remove_one", "add:5", "sub:7", "add:-999999999999999", "sub:-999999999999999",
+                "plural:one:other", "plural:zero:one:other", "isnumber"};
+        String[] numbers = {"0", "-0", "+0", "1", "-1", "+1", "2", "7", "-7", "007", "999", "1000", "-1000", "1250",
+                "123456", "999999", "1000000", "-1234567", "999999999999998", "999999999999999", "-999999999999999",
+                "1000000000000000", "-1000000000000000", "12345678901234567890"};
+        for (String modifier : modifiers) {
+            for (String number : numbers) {
+                // With ".0" the text is not one whole(...) reads: it goes through Double.parseDouble.
+                String asDouble = PlaceholderModifiers.apply(number + ".0", modifier);
+                assertEquals(asDouble, PlaceholderModifiers.apply(number, modifier), number + "." + modifier);
+                assertEquals(asDouble, PlaceholderModifiers.apply("  " + number + " ", modifier), "spaces around " + number + "." + modifier);
+            }
+        }
+        assertEquals(1250, PlaceholderModifiers.whole("1250"));
+        assertEquals(-3, PlaceholderModifiers.whole(" -3\t"));
+        assertEquals(999_999_999_999_999L, PlaceholderModifiers.whole("999999999999999"));
+        for (String other : new String[]{"", " ", "-", "+", "-0", "1.5", "1,5", "1e3", "5d", "0x10", "1 2", "--1", "١٢", "1000000000000000"}) {
+            assertEquals(PlaceholderModifiers.NOT_WHOLE, PlaceholderModifiers.whole(other), other);
+        }
     }
 
     @Test
