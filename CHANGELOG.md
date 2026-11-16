@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.2.0
 
 - `Values` holds computed values: `setComputed(key, supplier)` (asked at each render), `setForViewer(key, function)`
   and `set(key, PlaceholderValue)` for the other kinds (a component computed at each render or for the viewer).
