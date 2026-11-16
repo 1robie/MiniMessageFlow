@@ -143,44 +143,85 @@ differently), except for four things done on purpose:
   reads in its own way (`a < b > c`). Every other click action, `show_item` with a key and count, `show_entity` and
   decoration arguments (`<bold:off>`) are native.
 
-JMH 1.37, JDK 21.0.8, Adventure 4.17, Windows desktop; `-wi 5 -i 10 -f 2` with 1 s iterations, ± is the 99.9%
-error (`./gradlew :benchmarks:jmh -Pjmh.time=1s`).
+JMH 1.37, JDK 21.0.8, Windows desktop (12 threads); `-wi 5 -i 10 -f 2` with 1 s iterations, ± is the 99.9% error
+(`./gradlew :benchmarks:jmh -Pjmh.time=1s`, `-PadventureVersion=5.2.0` for the 5.2 column). Adventure 5.x keeps the
+children a render gives it without copying them, hence the lower numbers there.
 
-**Rendering** a compiled message:
+**Rendering**, the values changing at every send (`RenderBenchmark`: 16 sets of values made before the run, so the
+render alone is timed):
+
+| Message | Adventure 4.17 | Adventure 5.2 |
+|---|---:|---:|
+| `<gray>Hello <white>%name%` | 39 ± 1 ns, 185 B | 23 ± 1 ns, 116 B |
+| `<green>Welcome %name%!` (one component) | 28 ± 1 ns, 101 B | 28 ± 1 ns, 101 B |
+| 5 / 20 placeholders, each under a colour | 134 ± 4 / 451 ± 1 ns, 353 / 980 B | 69 ± 1 / 258 ± 2 ns, 254 / 766 B |
+| 3 placeholders + click | 92 ± 1 ns, 315 B | 56 ± 1 ns, 231 B |
+| the same, values set in a `Values` | 83 ± 1 ns, 315 B | 49 ± 1 ns, 231 B |
+| the same, then serialised to JSON as a server sends it | 1.49 ± 0.06 µs | 0.80 ± 0.01 µs |
+| shop line: 2 placeholders, a modifier, a click | 80 ± 1 ns, 271 B | 49 ± 1 ns, 195 B |
+| the same, tags that stay with MiniMessage (markers filled in its tree) | 97 ± 1 ns, 562 B | 60 ± 1 ns, 340 B |
+| `<font>`, `<lang>`, `<key>`, `<transition>` + 2 placeholders (native) | 141 ± 1 ns, 736 B | 99 ± 1 ns, 567 B |
+| a value in a click argument | 56 ± 1 ns, 284 B | 54 ± 1 ns, 300 B |
+| a value in a hover's text | 97 ± 1 ns, 453 B | 57 ± 2 ns, 315 B |
+| a value in a translation argument | 72 ± 1 ns, 376 B | 78 ± 1 ns, 388 B |
+| gradient over a value | 153 ± 3 ns, 484 B | 76 ± 1 ns, 362 B |
+| `MiniMessage.deserialize` of the shop line, for comparison | 6.2 ± 1.0 µs, 17 KB | 4.1 ± 0.1 µs, 14 KB |
+
+**Rendering** with the same values as the last render: a message sent to many players, a line drawn again. Every
+value is still asked for (suppliers, resolvers), then the last component is given again (Adventure 4.17; 5.2 is the
+same within 1 ns):
 
 | Message | MiniMessageFlow | Allocated | `MiniMessage.deserialize` |
 |---|---:|---:|---:|
-| no placeholder, `Template.render()` | 0.4 ± 0.1 ns | 0 B | 1.5 ± 0.1 µs, 5.3 KB |
-| no placeholder, `format(String)` (cache lookup) | 1.9 ± 0.1 ns | 0 B | |
-| 1 / 5 / 20 placeholders, each under a colour | 38 ± 1 / 118 ± 1 / 401 ± 35 ns | 264 / 472 / 1,248 B | |
-| 3 placeholders + click | 132 ± 2 ns | 608 B | |
-| the same, values set in a `Values` for the send | 106 ± 1 ns | 608 B | |
-| the same, a `Placeholder` built for the send | 123 ± 2 ns | 936 B | |
-| shop line: 2 placeholders, a modifier, a click | 114 ± 1 ns | 512 B | 5.1 ± 0.6 µs, 17 KB |
-| the same, `<key>` placeholders | 113 ± 1 ns | 512 B | |
-| the same, `format(String, ...)` | 118 ± 1 ns | 512 B | |
-| the same, tags that stay with MiniMessage (markers filled in its tree) | 159 ± 3 ns | 968 B | |
-| `<font>`, `<lang>`, `<key>`, `<transition>` + 2 placeholders (native) | 150 ± 5 ns | 848 B | |
-| `<selector>`, `<score>` + 2 placeholders (MiniMessage, markers) | 112 ± 7 ns | 496 B | |
-| `<sprite>`, `<head:name>` + 2 placeholders, Adventure 5.2 (native) | 70 ± 2 ns | 328 B | |
-| the same on Adventure 4.26 (MiniMessage, markers) | 101 ± 3 ns | 336 B | |
-| a global placeholder (resolver text, isolated) | 73 ± 1 ns | 288 B | |
-| click argument, same value / changing every send | 84 ± 1 / 90 ± 1 ns | 592 / 704 B | |
-| a value in a hover's text, changing every send | 126 ± 3 ns | 1.0 KB | |
-| a value in a translation argument, changing every send | 180 ± 30 ns | 784 B | |
-| gradient, same value / changing every send | 146 ± 4 / 140 ± 2 ns | 552 / 644 B | |
+| no placeholder, `Template.render()` | 0.35 ± 0.01 ns | 0 B | 1.8 ± 0.2 µs, 5.2 KB |
+| no placeholder, `format(String)` (cache lookup) | 1.8 ± 0.1 ns | 0 B | |
+| 3 placeholders + click | 18 ± 1 ns | 0 B | |
+| the same, values set in a `Values` for the send | 12 ± 1 ns | 0 B | |
+| the same, a `Placeholder` built for the send | 30 ± 1 ns | 112 B | |
+| shop line (the modifier writes its text) | 29 ± 1 ns | 48 B | 6.2 ± 1.0 µs, 17 KB |
+| the same, `<key>` placeholders / `format(String, ...)` | 29 ± 1 / 33 ± 1 ns | 48 B | |
+| `<selector>`, `<score>` + 2 placeholders (MiniMessage, markers) | 12 ± 1 ns | 0 B | |
+| `<sprite>`, `<head:name>` + 2 placeholders: 5.2 native / 4.17 markers | 12 ± 1 / 44 ± 1 ns | 0 / 160 B | |
+| a global placeholder (resolver text) | 19 ± 1 ns | 0 B | |
+| a value in a click argument / hover's text / translation argument | 12 / 16 / 20 ± 1 ns | 0 B | |
+| gradient over a value | 5.8 ± 0.1 ns | 0 B | |
 
-**Compiling** a message, once per text:
+**Several threads** rendering the same templates (`SharedRenderBenchmark`, values changing at every send, Adventure
+4.17). On this machine a render that writes nothing takes about 1.5 times as long on 8 threads as on one:
+
+| Message | 1 thread | 8 threads |
+|---|---:|---:|
+| `<green>Welcome %name%!` | 27 ± 1 ns | 52 ± 1 ns |
+| 3 placeholders + click, one a component | 197 ± 27 ns | 289 ± 4 ns |
+| the same, same values each time | 17 ± 1 ns | 27 ± 1 ns |
+| 5 placeholders, each under a colour | 79 ± 1 ns | 156 ± 1 ns |
+| gradient over a value | 114 ± 1 ns | 195 ± 2 ns |
+
+**Compared with [FastMiniMessage](https://github.com/Neoramm/FastMiniMessage)** 2.0.0-beta.2, Adventure 5.2
+(`FastMiniMessageBenchmark`, `-PfastMiniMessageVersion=2.0.0-beta.2`). It is given the values as components in a
+scope it reuses, this library as text; both are checked to show the same text first:
+
+| Message | MiniMessageFlow | FastMiniMessage |
+|---|---:|---:|
+| 3 placeholders + click, values changing | 54 ± 1 ns, 231 B | 103 ± 1 ns, 608 B |
+| the same, values set for each send | 49 ± 1 ns, 231 B | 129 ± 1 ns, 672 B |
+| the same, same values | 18 ± 1 ns, 0 B | 104 ± 4 ns, 592 B |
+| `<green>Welcome %name%!`, values changing | 27 ± 1 ns, 101 B | 62 ± 2 ns, 456 B |
+| 5 placeholders in 5 colours, values changing | 58 ± 1 ns, 246 B | 166 ± 1 ns, 1,240 B |
+| gradient over a value, values changing | 69 ± 1 ns, 362 B | 224 ± 1 ns, 1,192 B |
+| no placeholder | 0.36 ns, 0 B | 0.38 ns, 0 B |
+
+**Compiling** a message, once per text (Adventure 4.17):
 
 | Message | Compile | Allocated | One `MiniMessage.deserialize` |
 |---|---:|---:|---:|
-| no placeholder | 2.4 ± 0.1 µs | 8.9 KB | 1.5 ± 0.1 µs, 5.3 KB |
-| shop line (native) | 9.3 ± 0.4 µs | 30 KB | 5.2 ± 0.1 µs, 17 KB |
-| the same, `verifyNative(false)` | **2.1 ± 0.1 µs** | 8.3 KB | |
-| value in a click argument (native) | 4.9 ± 0.1 µs | 18 KB | |
-| the same, `verifyNative(false)` | **1.0 ± 0.1 µs** | 4.8 KB | |
-| `<font>`, `<lang>`, `<key>`, `<transition>` (native) | 13.1 ± 0.1 µs | 61 KB | |
-| `<selector>`, `<score>` (MiniMessage, markers) | 12.1 ± 0.1 µs | 46 KB | |
+| no placeholder | 2.3 ± 0.1 µs | 8.9 KB | 1.5 ± 0.1 µs, 5.3 KB |
+| shop line (native) | 8.8 ± 0.1 µs | 31 KB | 5.0 ± 0.1 µs, 17 KB |
+| the same, `verifyNative(false)` | **2.1 ± 0.1 µs** | 9.1 KB | |
+| value in a click argument (native) | 5.5 ± 0.2 µs | 19 KB | |
+| the same, `verifyNative(false)` | **1.2 ± 0.1 µs** | 5.6 KB | |
+| `<font>`, `<lang>`, `<key>`, `<transition>` (native) | 13.3 ± 0.2 µs | 62 KB | |
+| `<selector>`, `<score>` (MiniMessage, markers) | 11.9 ± 0.5 µs | 47 KB | |
 
 A message the native compiler takes is compiled without MiniMessage; the check (on by default) adds one MiniMessage
 parse to compare (two under a gradient or rainbow, whose colours depend on the values' length). So compiling costs
