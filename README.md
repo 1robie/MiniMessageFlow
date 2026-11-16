@@ -267,3 +267,9 @@ published. [CONTRIBUTING.md](CONTRIBUTING.md) has the release checklist.
 ## License
 
 MIT
+
+## Made with AI
+
+Much of this library's code, tests and benchmarks was written with AI assistance (Claude). I direct the work, review
+and check every change before it is committed, and run the tests on every supported Adventure version and the
+benchmarks before each release.
