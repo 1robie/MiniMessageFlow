@@ -27,6 +27,13 @@ import java.util.function.Predicate;
  * messages: {@code <name:mine>} is read as a modifier only if {@code mine} is one when the message is compiled. For
  * modifiers of one {@code MiniMessageFlow} only, use its builder ({@code modifier(name, modifier)}, a
  * {@link ModifierSet}).
+ * <p>
+ * The number modifiers read and write separators in a {@link NumberStyle}: {@link NumberStyle#AUTO} here, the one set
+ * on a {@link ModifierSet} or a {@code MiniMessageFlow}'s builder otherwise. A number is digits, an optional sign, the
+ * style's separators and an optional exponent ({@code 1e5}): {@code NaN}, {@code Infinity} or {@code 2f} are not. A
+ * modifier that needs a whole part ({@code int}, {@code round}, {@code floor}, {@code ceil}, {@code even}) fails on a
+ * number past what a {@code long} holds. {@code max}, {@code length} and {@code pad} count characters as shown: an
+ * emoji is one.
  *
  * <table>
  *   <caption>Built-in modifiers</caption>
@@ -35,7 +42,9 @@ import java.util.function.Predicate;
  *   <tr><td>{@code safe}</td><td>removes {@code ; & §} and line breaks</td></tr>
  *   <tr><td>{@code default:text}</td><td>{@code text} when the value is blank</td></tr>
  *   <tr><td>{@code max:n}, {@code pad:n}</td><td>at most {@code n} characters, zero-padded to {@code n} characters</td></tr>
- *   <tr><td>{@code int}, {@code round}, {@code floor}, {@code ceil}, {@code abs}</td><td>number rounding</td></tr>
+ *   <tr><td>{@code int}, {@code round}, {@code floor}, {@code ceil}, {@code abs}</td><td>number rounding
+ *   ({@code round} rounds a half up, {@code -2.5} to {@code -2}; {@code 0f} rounds it away from zero, to
+ *   {@code -3})</td></tr>
  *   <tr><td>{@code 0f}, {@code 1f}, {@code 2f}, {@code 3f}, {@code comma}</td><td>number formatting ({@code 1,234.50})</td></tr>
  *   <tr><td>{@code add:n}, {@code sub:n}, {@code add_one}, {@code remove_one}</td><td>arithmetic</td></tr>
  *   <tr><td>{@code negative}, {@code even}</td><td>{@code true} or {@code false}</td></tr>
@@ -73,17 +82,34 @@ public final class PlaceholderModifiers {
      * {@link #formatNumber} stops writing whole numbers as digits.
      */
     private static final int WHOLE_DIGITS = 15;
+    /**
+     * The largest {@code double} that is a {@code long}: past it, a cast to {@code long} gives {@code Long.MAX_VALUE}.
+     */
+    private static final double LONG_RANGE = 0x1p63;
+    /**
+     * The modifiers registered with {@link #register}, and the built-in ones that read no number.
+     */
     private static final Map<String, Modifier> MODIFIERS = new ConcurrentHashMap<>();
+    /**
+     * The built-in modifiers that read or write numbers, for each style. A modifier of {@link #MODIFIERS} with the
+     * same name (one registered over a built-in) is used before them.
+     */
+    private static final Map<NumberStyle, Map<String, Modifier>> NUMBERS = new java.util.EnumMap<>(NumberStyle.class);
 
     static {
         register("upper", (v, a) -> v.toUpperCase(Locale.ROOT));
         register("lower", (v, a) -> v.toLowerCase(Locale.ROOT));
-        register("capitalize", (v, a) -> v.isEmpty() ? v
-                : v.substring(0, 1).toUpperCase(Locale.ROOT) + v.substring(1).toLowerCase(Locale.ROOT));
+        register("capitalize", (v, a) -> {
+            if (v.isEmpty()) {
+                return v;
+            }
+            int first = Character.charCount(v.codePointAt(0));
+            return v.substring(0, first).toUpperCase(Locale.ROOT) + v.substring(first).toLowerCase(Locale.ROOT);
+        });
         register("trim", (v, a) -> v.trim());
-        register("length", (v, a) -> String.valueOf(v.length()));
+        // Characters as shown: an emoji is one, not two UTF-16 units.
+        register("length", (v, a) -> String.valueOf(v.codePointCount(0, v.length())));
         register("empty", (v, a) -> String.valueOf(v.isBlank()));
-        register("isnumber", (v, a) -> String.valueOf(whole(v) != NOT_WHOLE || parseNumber(v) != null));
         register("safe", (v, a) -> {
             StringBuilder out = new StringBuilder(v.length());
             for (int i = 0; i < v.length(); i++) {
@@ -97,49 +123,54 @@ public final class PlaceholderModifiers {
         register("default", (v, a) -> v.isBlank() && a.length > 0 ? a[0] : v);
         register("max", (v, a) -> {
             int n = Integer.parseInt(a[0]);
-            return v.length() <= n ? v : v.substring(0, n);
+            if (n < 0) {
+                throw new IllegalArgumentException("max under 0: " + n);
+            }
+            // n characters as shown: an emoji is never cut in two.
+            return v.codePointCount(0, v.length()) <= n ? v : v.substring(0, v.offsetByCodePoints(0, n));
         });
         register("pad", (v, a) -> {
             int width = Integer.parseInt(a[0]);
             if (width > MAX_PAD) {
                 throw new IllegalArgumentException("pad width over " + MAX_PAD + ": " + width);
             }
-            return "0".repeat(Math.max(0, width - v.length())) + v;
+            return "0".repeat(Math.max(0, width - v.codePointCount(0, v.length()))) + v;
         });
+        for (NumberStyle style : NumberStyle.values()) {
+            NUMBERS.put(style, Map.copyOf(numberModifiers(style)));
+        }
+    }
 
-        register("int", numeric(d -> String.valueOf((long) d), Long::toString));
-        register("round", numeric(d -> String.valueOf(Math.round(d)), Long::toString));
-        register("floor", numeric(d -> String.valueOf((long) Math.floor(d)), Long::toString));
-        register("ceil", numeric(d -> String.valueOf((long) Math.ceil(d)), Long::toString));
-        register("abs", numeric(d -> formatNumber(Math.abs(d)), n -> Long.toString(Math.abs(n))));
-        register("negative", numeric(d -> String.valueOf(d < 0), n -> String.valueOf(n < 0)));
-        register("even", numeric(d -> String.valueOf(((long) d) % 2 == 0), n -> String.valueOf(n % 2 == 0)));
-        register("0f", numeric(d -> String.format(Locale.US, "%.0f", d), Long::toString));
-        register("1f", numeric(d -> String.format(Locale.US, "%.1f", d), n -> n + ".0"));
-        register("2f", numeric(d -> String.format(Locale.US, "%.2f", d), n -> n + ".00"));
-        register("3f", numeric(d -> String.format(Locale.US, "%.3f", d), n -> n + ".000"));
-        register("comma", numeric(d -> d == Math.rint(d)
-                ? grouped((long) d)
-                : String.format(Locale.US, "%,.2f", d), PlaceholderModifiers::grouped));
-        register("add_one", numeric(d -> formatNumber(d + 1), n -> formatWhole(n + 1)));
-        register("remove_one", numeric(d -> formatNumber(d - 1), n -> formatWhole(n - 1)));
-        register("add", (v, a) -> {
-            long whole = whole(v), other = whole == NOT_WHOLE ? NOT_WHOLE : whole(a[0]);
-            if (other != NOT_WHOLE) {
-                return formatWhole(whole + other);
-            }
-            Double d = parseNumber(v), n = parseNumber(a[0]);
-            return d == null || n == null ? null : formatNumber(d + n);
-        });
-        register("sub", (v, a) -> {
-            long whole = whole(v), other = whole == NOT_WHOLE ? NOT_WHOLE : whole(a[0]);
-            if (other != NOT_WHOLE) {
-                return formatWhole(whole - other);
-            }
-            Double d = parseNumber(v), n = parseNumber(a[0]);
-            return d == null || n == null ? null : formatNumber(d - n);
-        });
-        register("plural", (v, a) -> {
+    /**
+     * The built-in modifiers that read or write numbers, reading and writing them in a style.
+     */
+    private static @NotNull Map<String, Modifier> numberModifiers(@NotNull NumberStyle style) {
+        Map<String, Modifier> modifiers = new java.util.HashMap<>();
+        modifiers.put("isnumber", (v, a) -> String.valueOf(whole(v) != NOT_WHOLE || parseNumber(v, style) != null));
+        // A number past what a long holds has no whole part to give: the modifier fails.
+        modifiers.put("int", numeric(style, d -> inLong(d) ? String.valueOf((long) d) : null, Long::toString));
+        modifiers.put("round", numeric(style, d -> inLong(d) ? String.valueOf(Math.round(d)) : null, Long::toString));
+        modifiers.put("floor", numeric(style, d -> inLong(d) ? String.valueOf((long) Math.floor(d)) : null, Long::toString));
+        modifiers.put("ceil", numeric(style, d -> inLong(d) ? String.valueOf((long) Math.ceil(d)) : null, Long::toString));
+        modifiers.put("abs", numeric(style, d -> write(formatNumber(Math.abs(d)), style), n -> Long.toString(Math.abs(n))));
+        modifiers.put("negative", numeric(style, d -> String.valueOf(d < 0), n -> String.valueOf(n < 0)));
+        modifiers.put("even", numeric(style, d -> inLong(d) ? String.valueOf(((long) d) % 2 == 0) : null,
+                n -> String.valueOf(n % 2 == 0)));
+        modifiers.put("0f", numeric(style, d -> String.format(Locale.US, "%.0f", d), Long::toString));
+        modifiers.put("1f", numeric(style, d -> write(String.format(Locale.US, "%.1f", d), style),
+                n -> n + (style == NumberStyle.EUROPEAN ? ",0" : ".0")));
+        modifiers.put("2f", numeric(style, d -> write(String.format(Locale.US, "%.2f", d), style),
+                n -> n + (style == NumberStyle.EUROPEAN ? ",00" : ".00")));
+        modifiers.put("3f", numeric(style, d -> write(String.format(Locale.US, "%.3f", d), style),
+                n -> n + (style == NumberStyle.EUROPEAN ? ",000" : ".000")));
+        modifiers.put("comma", numeric(style, d -> write(d != Math.rint(d) ? String.format(Locale.US, "%,.2f", d)
+                : inLong(d) ? grouped((long) d) : String.format(Locale.US, "%,.0f", d), style),
+                n -> write(grouped(n), style)));
+        modifiers.put("add_one", numeric(style, d -> write(formatNumber(d + 1), style), n -> formatWhole(n + 1, style)));
+        modifiers.put("remove_one", numeric(style, d -> write(formatNumber(d - 1), style), n -> formatWhole(n - 1, style)));
+        modifiers.put("add", (v, a) -> arithmetic(v, a[0], style, false));
+        modifiers.put("sub", (v, a) -> arithmetic(v, a[0], style, true));
+        modifiers.put("plural", (v, a) -> {
             if (a.length < 2) {
                 return null;
             }
@@ -148,7 +179,7 @@ public final class PlaceholderModifiers {
             if (whole != NOT_WHOLE) {
                 d = whole;
             } else {
-                Double parsed = parseNumber(v);
+                Double parsed = parseNumber(v, style);
                 if (parsed == null) {
                     return null;
                 }
@@ -159,6 +190,25 @@ public final class PlaceholderModifiers {
             }
             return Math.abs(d) == 1 ? a[0] : a[1];
         });
+        return modifiers;
+    }
+
+    private static @Nullable String arithmetic(@NotNull String value, @NotNull String argument, @NotNull NumberStyle style,
+                                               boolean subtract) {
+        long whole = whole(value), other = whole == NOT_WHOLE ? NOT_WHOLE : whole(argument);
+        if (other != NOT_WHOLE) {
+            return formatWhole(subtract ? whole - other : whole + other, style);
+        }
+        Double d = parseNumber(value, style), n = parseNumber(argument, style);
+        if (d == null || n == null) {
+            return null;
+        }
+        double result = subtract ? d - n : d + n;
+        return Double.isFinite(result) ? write(formatNumber(result), style) : null;
+    }
+
+    private static boolean inLong(double d) {
+        return Math.abs(d) < LONG_RANGE;
     }
 
     private PlaceholderModifiers() {
@@ -192,7 +242,20 @@ public final class PlaceholderModifiers {
      * @return the modifier, or null
      */
     public static @Nullable Modifier get(@NotNull String name) {
-        return MODIFIERS.get(name.toLowerCase(Locale.ROOT));
+        return get(name, NumberStyle.AUTO);
+    }
+
+    /**
+     * Returns a registered modifier, the built-in number modifiers reading and writing numbers in a style.
+     *
+     * @param name  the name, case-insensitive
+     * @param style how the built-in number modifiers read and write numbers
+     * @return the modifier, or null
+     */
+    public static @Nullable Modifier get(@NotNull String name, @NotNull NumberStyle style) {
+        String lower = name.toLowerCase(Locale.ROOT);
+        Modifier modifier = MODIFIERS.get(lower);
+        return modifier != null ? modifier : NUMBERS.get(style).get(lower);
     }
 
     /**
@@ -348,13 +411,14 @@ public final class PlaceholderModifiers {
      * @param whole    the same for a whole number read by {@link #whole}: it must give what {@code function} gives
      *                 for that number, without a {@code double} in between
      */
-    private static @NotNull Modifier numeric(@NotNull DoubleFunction<String> function, @NotNull LongFunction<String> whole) {
+    private static @NotNull Modifier numeric(@NotNull NumberStyle style, @NotNull DoubleFunction<String> function,
+                                             @NotNull LongFunction<String> whole) {
         return (value, args) -> {
             long n = whole(value);
             if (n != NOT_WHOLE) {
                 return whole.apply(n);
             }
-            Double number = parseNumber(value);
+            Double number = parseNumber(value, style);
             return number == null ? null : function.apply(number);
         };
     }
@@ -402,12 +466,158 @@ public final class PlaceholderModifiers {
         return n;
     }
 
-    private static @Nullable Double parseNumber(@NotNull String value) {
-        try {
-            return Double.parseDouble(value.trim().replace(',', '.'));
-        } catch (NumberFormatException e) {
+    /**
+     * Reads a number written with digits, an optional sign, the separators of a style and an optional exponent
+     * ({@code 1e5}). Anything else is not a number: {@code NaN}, {@code Infinity}, Java's {@code 2f} or {@code 10d}, hex,
+     * thousands not in groups of three, a number too large for a {@code double}.
+     *
+     * @return the number, or null
+     */
+    static @Nullable Double parseNumber(@NotNull String value, @NotNull NumberStyle style) {
+        String text = value.trim();
+        int length = text.length();
+        int start = 0;
+        if (start < length && (text.charAt(start) == '-' || text.charAt(start) == '+')) {
+            start++;
+        }
+        int end = length; // the end of the part before the exponent
+        int dots = 0, commas = 0, lastDot = -1, lastComma = -1, digits = 0;
+        for (int i = start; i < length; i++) {
+            char c = text.charAt(i);
+            if (c >= '0' && c <= '9') {
+                digits++;
+            } else if (c == '.') {
+                dots++;
+                lastDot = i;
+            } else if (c == ',') {
+                commas++;
+                lastComma = i;
+            } else if (c == 'e' || c == 'E') {
+                end = i;
+                break;
+            } else if (!isGroupSpace(c)) {
+                return null;
+            }
+        }
+        if (digits == 0) {
             return null;
         }
+        char decimal = switch (style) {
+            case ENGLISH -> '.';
+            case EUROPEAN -> ',';
+            case AUTO -> autoDecimal(text, start, dots, commas, lastDot, lastComma);
+        };
+        char group = decimal == '.' ? ',' : '.';
+        boolean spaces = style != NumberStyle.ENGLISH;
+        StringBuilder out = new StringBuilder(length);
+        if (start > 0) {
+            out.append(text.charAt(0));
+        }
+        // The whole part: digits, in groups of three after the first when separated.
+        int groupDigits = -1; // digits since the last separator, -1 before any separator
+        int run = 0;
+        int i = start;
+        for (; i < end; i++) {
+            char c = text.charAt(i);
+            if (c >= '0' && c <= '9') {
+                out.append(c);
+                run++;
+            } else if (c == group || spaces && isGroupSpace(c)) {
+                if (run == 0 || groupDigits >= 0 && run != 3 || groupDigits < 0 && run > 3) {
+                    return null;
+                }
+                groupDigits = run;
+                run = 0;
+            } else if (c == decimal) {
+                break;
+            } else {
+                return null;
+            }
+        }
+        if (groupDigits >= 0 && run != 3) {
+            return null;
+        }
+        if (i < end) { // the decimal point, then digits only
+            out.append('.');
+            for (i++; i < end; i++) {
+                char c = text.charAt(i);
+                if (c < '0' || c > '9') {
+                    return null;
+                }
+                out.append(c);
+            }
+        }
+        if (end < length) { // the exponent: a sign, then digits
+            out.append('e');
+            i = end + 1;
+            if (i < length && (text.charAt(i) == '-' || text.charAt(i) == '+')) {
+                out.append(text.charAt(i++));
+            }
+            if (i == length) {
+                return null;
+            }
+            for (; i < length; i++) {
+                char c = text.charAt(i);
+                if (c < '0' || c > '9') {
+                    return null;
+                }
+                out.append(c);
+            }
+        }
+        double number = Double.parseDouble(out.toString());
+        return Double.isFinite(number) ? number : null;
+    }
+
+    /**
+     * The decimal point of {@link NumberStyle#AUTO}, as its documentation says; {@code '.'} when there is none.
+     */
+    private static char autoDecimal(@NotNull String text, int start, int dots, int commas, int lastDot, int lastComma) {
+        if (dots > 0 && commas > 0) {
+            return lastDot > lastComma ? '.' : ',';
+        }
+        if (commas > 1) {
+            return '.';
+        }
+        if (dots > 1) {
+            return ',';
+        }
+        if (commas == 1) {
+            // 1,234 is a thousand; 1,5 and 0,125 are decimals.
+            int after = 0;
+            for (int i = lastComma + 1; i < text.length() && text.charAt(i) >= '0' && text.charAt(i) <= '9'; i++) {
+                after++;
+            }
+            boolean digitsOnlyAfter = lastComma + 1 + after == text.length();
+            String whole = text.substring(start, lastComma).trim();
+            boolean zero = whole.isEmpty() || whole.chars().allMatch(c -> c == '0');
+            return after == 3 && digitsOnlyAfter && !zero ? '.' : ',';
+        }
+        return '.';
+    }
+
+    /**
+     * A space between thousands: a space, a no-break space, a narrow no-break space (what French writes).
+     */
+    private static boolean isGroupSpace(char c) {
+        return c == ' ' || c == ' ' || c == ' ';
+    }
+
+    /**
+     * A number written the English way, in a style: {@link NumberStyle#EUROPEAN} swaps {@code .} and {@code ,}.
+     */
+    private static @NotNull String write(@NotNull String english, @NotNull NumberStyle style) {
+        if (style != NumberStyle.EUROPEAN || english.indexOf('.') < 0 && english.indexOf(',') < 0) {
+            return english;
+        }
+        char[] chars = english.toCharArray();
+        for (int i = 0; i < chars.length; i++) {
+            if (chars[i] == '.') {
+                chars[i] = ',';
+            } else if (chars[i] == ',') {
+                chars[i] = '.';
+            }
+        }
+        return new String(chars);
     }
 
     /**
@@ -441,8 +651,9 @@ public final class PlaceholderModifiers {
     /**
      * A whole number as {@link #formatNumber} writes it.
      */
-    private static @NotNull String formatWhole(long n) {
-        return n > -1_000_000_000_000_000L && n < 1_000_000_000_000_000L ? Long.toString(n) : String.valueOf((double) n);
+    private static @NotNull String formatWhole(long n, @NotNull NumberStyle style) {
+        return n > -1_000_000_000_000_000L && n < 1_000_000_000_000_000L ? Long.toString(n)
+                : write(String.valueOf((double) n), style);
     }
 
     private static @NotNull String formatNumber(double d) {

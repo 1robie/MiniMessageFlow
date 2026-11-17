@@ -201,6 +201,16 @@ public final class MiniMessageFlow {
         }
 
         /**
+         * How the built-in number modifiers ({@code comma}, {@code add:n}, {@code 2f}, {@code plural}...) read a value's
+         * separators and write the numbers they give: {@code 1,234.50} or {@code 1.234,50}. {@link NumberStyle#AUTO}
+         * by default. A plugin can let its users choose it in its configuration.
+         */
+        public @NotNull Builder numberStyle(@NotNull NumberStyle numberStyle) {
+            this.modifiers.numberStyle(numberStyle);
+            return this;
+        }
+
+        /**
          * Adds a modifier of this instance only ({@code %key.name%}, {@code <key:name>}), used before a shared one of
          * {@link PlaceholderModifiers} with the same name.
          *

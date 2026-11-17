@@ -13,16 +13,26 @@ import java.util.function.Function;
 /**
  * The modifiers one {@code MiniMessageFlow} reads: its own, then the shared ones of {@link PlaceholderModifiers}.
  * Immutable: its own modifiers are known before any message is compiled, so {@code <name:mine>} always reads the
- * same way, and two instances can have different modifiers.
+ * same way, and two instances can have different modifiers. The built-in number modifiers read and write numbers
+ * in its {@link NumberStyle} ({@link NumberStyle#AUTO} unless set).
  */
 public final class ModifierSet {
 
-    private static final ModifierSet SHARED = new ModifierSet(Map.of());
+    private static final ModifierSet SHARED = new ModifierSet(Map.of(), NumberStyle.AUTO);
 
     private final Map<String, Modifier> own;
+    private final NumberStyle numberStyle;
 
-    private ModifierSet(@NotNull Map<String, Modifier> own) {
+    private ModifierSet(@NotNull Map<String, Modifier> own, @NotNull NumberStyle numberStyle) {
         this.own = own;
+        this.numberStyle = numberStyle;
+    }
+
+    /**
+     * How the built-in number modifiers of this set read and write numbers.
+     */
+    public @NotNull NumberStyle numberStyle() {
+        return this.numberStyle;
     }
 
     /**
@@ -42,7 +52,7 @@ public final class ModifierSet {
      */
     public @Nullable Modifier get(@NotNull String name) {
         Modifier modifier = this.own.isEmpty() ? null : this.own.get(name.toLowerCase(Locale.ROOT));
-        return modifier != null ? modifier : PlaceholderModifiers.get(name);
+        return modifier != null ? modifier : PlaceholderModifiers.get(name, this.numberStyle);
     }
 
     /**
@@ -75,6 +85,7 @@ public final class ModifierSet {
 
     public static final class Builder {
         private final Map<String, Modifier> own = new HashMap<>();
+        private NumberStyle numberStyle = NumberStyle.AUTO;
 
         private Builder() {
         }
@@ -89,8 +100,17 @@ public final class ModifierSet {
             return this;
         }
 
+        /**
+         * How the built-in number modifiers read and write numbers. {@link NumberStyle#AUTO} by default.
+         */
+        public @NotNull Builder numberStyle(@NotNull NumberStyle numberStyle) {
+            this.numberStyle = Objects.requireNonNull(numberStyle, "numberStyle cannot be null");
+            return this;
+        }
+
         public @NotNull ModifierSet build() {
-            return this.own.isEmpty() ? SHARED : new ModifierSet(Map.copyOf(this.own));
+            return this.own.isEmpty() && this.numberStyle == NumberStyle.AUTO ? SHARED
+                    : new ModifierSet(Map.copyOf(this.own), this.numberStyle);
         }
     }
 }

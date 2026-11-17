@@ -12,6 +12,18 @@
 - A `</reset>` is dropped, as MiniMessage drops it; the native compiler kept it as text (with `verifyNative`, the
   message went the MiniMessage way).
 - The text of a `<hover:show_text:...>` without values is compacted, as MiniMessage's is.
+- `NumberStyle`, set with `MiniMessageFlow.builder().numberStyle(...)` or `ModifierSet.Builder.numberStyle(...)`: how
+  the number modifiers read a value's separators and write theirs. `AUTO` (the default) reads `1,234` as 1234 and
+  `1,5` as 1.5 and writes `1,234.50`; `ENGLISH` reads and writes `1,234.50`; `EUROPEAN` reads `1.234,50` or
+  `1 234,50` and writes `1.234,50`. A plugin can let its users choose it in its configuration.
+- Changed: every `,` was read as a decimal point, so `1,234` (what `comma` writes) was 1.234: `%v.comma.add:1%`
+  gave `2.234`. With `AUTO` it is 1234. For the old reading of `1,234`, use `EUROPEAN`.
+- Changed: a number is digits, a sign, separators and an exponent only. `NaN`, `Infinity`, `2f`, `10d` and hex
+  were read as numbers (`isnumber` said `true`); they are not.
+- A number past what a `long` holds made `int`, `round`, `floor`, `ceil` and `comma` give `9223372036854775807`
+  (`Infinity.comma` too) and `NaN.int` gave `0`: `int`, `round`, `floor`, `ceil` and `even` fail on it (the
+  placeholder is kept), and `comma` writes it in full.
+- `max`, `length`, `pad` and `capitalize` count characters as shown: `max:1` no longer cuts an emoji in two.
 - A render with a `<key>` that has no value keeps the unknown slots as bits (a `long`; an array past 64 slots), not
   a `HashSet` of boxed numbers copied for each render, and looks up the form for them with that key. The shop line
   with a `<missing>` at its end (JMH, 1 s iterations): 151 ns and 573 B to 110 ns and 269 B. Renders where every

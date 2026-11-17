@@ -84,7 +84,12 @@ Component once = text.format("<red>Hello %name%", Placeholder.of("name", "Steve"
   an expiry; the default is a bounded map without dependency), `nativeCompiler(boolean)`,
   `errorHandler(BiConsumer<String, Throwable>)` (told when a resolver or a value throws; by default one warning per
   key in the log), `modifier(name, modifier)` (a modifier of this instance only), `bareHexColors(boolean)` (false: a
-  `#rrggbb` without `&` is text, so `Issue #123456` keeps its number).
+  `#rrggbb` without `&` is text, so `Issue #123456` keeps its number), `numberStyle(NumberStyle)` (how the number
+  modifiers read and write separators, below).
+- **Number style**: `AUTO` (the default) reads `1,234` as 1234 and `1,5` as 1.5, and writes `1,234.50`; `ENGLISH`
+  reads and writes `1,234.50` only; `EUROPEAN` reads `1.234,50` and `1 234,50` and writes `1.234,50`. A value that
+  does not fit the style is not a number, and the placeholder is kept as written. To let a server owner choose:
+  `builder.numberStyle(NumberStyle.valueOf(config.getString("number-style", "auto").toUpperCase(Locale.ROOT)))`.
 - **A template** tells what it is: `placeholders()` lists the keys it asks for (compare with the keys you give to
   find a `%palyer%`), `kind()` how it renders (`STATIC`, `NATIVE`, `MARKERS`, `PARSED`, fastest first), and
   `renderPlain(...)` gives plain text for a console or a log. `compileAll(Map)` compiles a configuration at once on
@@ -117,7 +122,8 @@ differently), except for four things done on purpose:
 
 1. Text from a resolver is formatted on its own: a prefix returning `&c[Admin] ` does not colour what follows it.
 2. A value written into a tag argument (`<click:run_command:'/tp %name%'>`) loses `< > ' " \ % & §`, so it can't close
-   the tag or be read again. Text from a resolver is used there as plain text.
+   the tag or be read again, and stays one argument (an argument without quotes is read as if it had them). Text
+   from a resolver is used there as plain text.
 3. `<name>` placeholders. A standard tag always wins (`<red>`, `<b>`): such a placeholder is only reachable as
    `%red%`. Inside a tag argument `<name>` stays text, as in MiniMessage.
 4. A value written into a tag can make a standard tag (`<%color%>` with `red`) but never a `<name>` placeholder.
