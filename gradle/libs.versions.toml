@@ -30,4 +30,5 @@ junit-launcher = { module = "org.junit.platform:junit-platform-launcher" }
 
 [plugins]
 shadow = { id = "com.gradleup.shadow", version = "9.6.1" }
+run-paper = { id = "xyz.jpenilla.run-paper", version = "3.1.0" }
 jmh = { id = "me.champeau.jmh", version = "0.7.4" }

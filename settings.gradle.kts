@@ -27,6 +27,7 @@ include(
     "compat:adventure-5",
     "minimessageflow",
     "platform:paper",
+    "platform:paper-smoke",
     "testkit",
     "benchmarks",
 )

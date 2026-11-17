@@ -17,6 +17,12 @@
   `effectiveName()` from Paper 1.21, its meta on 1.20.6); Folia: a placeholder reading the player's world is only read
   on the player's region thread, and `mainThreadOnly` means the thread that owns the player. Measured: the region
   check costs nothing on Paper (`<viewer_name>` with `<server_online>` still 83 ns and 345 B).
+- Fixed, found on a real Folia 1.21.11 and 26.3 server: `server_tps` and `server_mspt` off a region's thread (Folia has
+  no tick time there) logged an error; they are shown as written, quietly. A smoke test on real Paper and Folia
+  servers 1.20.6, 1.21.11 and 26.3 (`platform/paper-smoke`, see CONTRIBUTING.md) checks the Paper module as a plugin
+  ships it.
+- Note: an installed placeholder plugin answers before the built-in placeholders: MiniPlaceholders 2.x has its own
+  `server_mspt` (written `0`, the built-in `0.00`).
 - `AdventureBridge.insertedTag`: a tag resolver asked directly, without a parse, on Adventure 4.
 - Changed: the JitPack names. The library is `com.github.1robie.MiniMessageFlow:MiniMessageFlow:<version>`, the Paper
   integration `com.github.1robie.MiniMessageFlow:paper-minimessageflow:<version>`. The old

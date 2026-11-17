@@ -49,6 +49,24 @@ class FoliaTest {
     }
 
     @Test
+    @DisplayName("Folia: off a region, the server has no tick time: server_tps and server_mspt shown as written, nothing reported")
+    void tickTimeOffRegion() {
+        Regions.testing(player -> false, true);
+        org.bukkit.Server folia = Fakes.proxy(org.bukkit.Server.class, java.util.Map.of(
+                "getTPS", args -> {
+                    throw new UnsupportedOperationException("Not on any region");
+                },
+                "getAverageTickTime", args -> {
+                    throw new UnsupportedOperationException("Not on any region");
+                }));
+        List<String> failed = new ArrayList<>();
+        MiniMessageFlow.Builder builder = MiniMessageFlow.builder().errorHandler((key, error) -> failed.add(key));
+        PaperPlaceholders.builder().applyTo(builder, () -> folia);
+        assertEquals("<server_tps> <server_mspt>", PLAIN.serialize(builder.build().format("<server_tps> <server_mspt>")));
+        assertTrue(failed.isEmpty(), failed.toString());
+    }
+
+    @Test
     @DisplayName("Paper: world placeholders are read on any thread, as before")
     void paperUnchecked() {
         Regions.testing(player -> false, false);

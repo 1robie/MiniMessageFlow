@@ -55,6 +55,13 @@ final class Regions {
     }
 
     /**
+     * Whether Folia's rules apply: on Folia; set in tests.
+     */
+    static boolean foliaRules() {
+        return checked;
+    }
+
+    /**
      * For tests: how a region is owned, and whether world reads are checked.
      */
     static void testing(@NotNull Predicate<Player> owner, boolean check) {

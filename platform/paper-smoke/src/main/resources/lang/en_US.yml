@@ -1,0 +1,2 @@
+smoke:
+  bought: "<green>You bought <arg:0>"

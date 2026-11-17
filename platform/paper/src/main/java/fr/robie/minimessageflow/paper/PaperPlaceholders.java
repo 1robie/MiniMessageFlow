@@ -107,9 +107,10 @@ public final class PaperPlaceholders {
             }));
             this.server("online", server -> server.getOnlinePlayers().size());
             this.server("max", Server::getMaxPlayers);
-            // Paper: the last minute's ticks per second, at most 20; the average milliseconds a tick takes.
-            this.server("tps", server -> decimal(Math.min(20, server.getTPS()[0])));
-            this.server("mspt", server -> decimal(server.getAverageTickTime()));
+            // Paper: the last minute's ticks per second, at most 20; the average milliseconds a tick takes. On Folia
+            // each region ticks on its own: off a region's thread there is none (shown as written, nothing logged).
+            this.server("tps", server -> onRegion(() -> decimal(Math.min(20, server.getTPS()[0]))));
+            this.server("mspt", server -> onRegion(() -> decimal(server.getAverageTickTime())));
             return this;
         }
 
@@ -129,6 +130,20 @@ public final class PaperPlaceholders {
                 checkRegion(player);
                 return value.apply(player, arguments);
             };
+        }
+
+        /**
+         * A server value that Folia only has on a region's thread ("Not on any region" elsewhere): null there.
+         */
+        private static @Nullable String onRegion(@NotNull java.util.function.Supplier<String> value) {
+            try {
+                return value.get();
+            } catch (UnsupportedOperationException e) {
+                if (Regions.foliaRules()) {
+                    return null;
+                }
+                throw e;
+            }
         }
 
         private static void checkRegion(@NotNull Player player) {

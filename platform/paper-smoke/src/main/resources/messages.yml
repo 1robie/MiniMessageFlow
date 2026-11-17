@@ -1,0 +1,5 @@
+smoke:
+  hello: "<green>Hello %who%"
+  lines:
+    - "First"
+    - "Second"
