@@ -14,6 +14,13 @@
 - In `parse`, a value that throws is asked once, not at each of its tokens.
 - `isViewerDependent` no longer wraps text values to read them.
 - The class documentation's `Placeholder.of("time", ...)` example compiles.
+- A null supplier, function or component is refused when the value is made (`NullPointerException`), by
+  `PlaceholderValue.of...`, `Placeholder.of(...)` and the builder; it failed at a render.
+- In `Placeholder.parse`, a modifier on a component value reads its plain text, as in a render: `%item.length%`
+  counted the `§` codes, `%item.max:3%` could cut one. The value alone (`%item%`) still gives its legacy text.
+- A component's legacy text keeps its hex colours (`§x§f§f§8§8§0§0`, Bukkit's form); they became the nearest of the
+  16 named colours.
+- Documented: the `PlaceholderValue.of...` factories are public; without a viewer, a viewer value is empty text.
 
 ## 1.2.1
 

@@ -53,6 +53,8 @@ import java.util.function.Supplier;
  */
 public final class Placeholder {
     private static final Object[] NO_ENTRIES = new Object[0];
+    private static final net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer PLAIN =
+            net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer.plainText();
     /**
      * Up to this many values are kept in one array, read in order: cheaper to build and to read than a map for the
      * few values a message has. More go in a map.
@@ -211,9 +213,12 @@ public final class Placeholder {
             return message;
         }
 
-        // Only the keys found in the message are evaluated, each once: a value that fails is not asked again.
+        // Only the keys found in the message are evaluated, each once: a value that fails is not asked again. A
+        // component gives its legacy text as the token's whole value (its colours kept), its plain text to a modifier
+        // (as in a render: %item.length% counts what is shown, not the colour codes), kept apart.
         Map<String, String> evaluated = new HashMap<>(4);
-        Function<String, String> lookup = key -> {
+        Map<String, String> plainTexts = new HashMap<>(2);
+        return PlaceholderScanner.replace(message, (token, start) -> modifiers.resolve(token, key -> {
             Object raw = this.raw(key);
             if (raw == null) {
                 return null;
@@ -221,19 +226,21 @@ public final class Placeholder {
             if (raw instanceof String text) {
                 return text;
             }
-            if (evaluated.containsKey(key)) {
-                return evaluated.get(key);
+            PlaceholderValue value = (PlaceholderValue) raw;
+            boolean plain = value.isComponent() && !key.equals(token);
+            Map<String, String> texts = plain ? plainTexts : evaluated;
+            if (texts.containsKey(key)) {
+                return texts.get(key);
             }
             String text;
             try {
-                text = ((PlaceholderValue) raw).evaluate(viewer);
+                text = plain ? PLAIN.serialize(value.asComponent(viewer)) : value.evaluate(viewer);
             } catch (Exception e) {
                 text = null; // the token is kept as written
             }
-            evaluated.put(key, text);
+            texts.put(key, text);
             return text;
-        };
-        return PlaceholderScanner.replace(message, (key, start) -> modifiers.resolve(key, lookup));
+        }));
     }
 
     /**
