@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.2.1
 
 - A value in a tag argument without quotes is one argument: a `:` in it no longer starts another.
   `<click:run_command:/tp %p%>` with `a:b` ran `/tp a`; it runs `/tp a:b`. Such an argument is read as if written
