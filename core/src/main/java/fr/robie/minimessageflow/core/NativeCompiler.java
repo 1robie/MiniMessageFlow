@@ -1515,6 +1515,10 @@ final class NativeCompiler {
                     return;
                 }
             }
+            // MiniMessage drops a </reset>, wherever it is, and resets nothing.
+            if (name.equals("reset")) {
+                return;
+            }
             // A closing tag matches its opening tag by name only (</b> does not close <bold>); one that matches no open
             // tag is text, as in MiniMessage.
             pending.append(text, tag.start(), tag.end());
@@ -1976,7 +1980,7 @@ final class NativeCompiler {
                         if (arguments.size() != 2) {
                             throw unsupported();
                         }
-                        yield Style.style().hoverEvent(HoverEvent.showText(this.parse(arguments.get(1), false).build())).build();
+                        yield Style.style().hoverEvent(HoverEvent.showText(this.parse(arguments.get(1), false).build().compact())).build();
                     }
                     case "show_item" -> Style.style().hoverEvent(showItem(arguments)).build();
                     case "show_entity" -> Style.style().hoverEvent(this.showEntity(arguments)).build();

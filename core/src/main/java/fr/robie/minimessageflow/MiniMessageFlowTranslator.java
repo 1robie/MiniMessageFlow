@@ -35,8 +35,8 @@ import java.util.concurrent.ConcurrentHashMap;
  *     MiniMessage's translator), or {@code %i%} / {@code <i>}. It is inserted as a component: its own style is kept.</li>
  *     <li>The language: the exact locale, then its less specific forms as resource bundles fall back ({@code fr_CA}
  *     → {@code fr}; {@code zh_Hant_TW} → {@code zh_Hant}, {@code zh_TW}, {@code zh}), then a template registered for
- *     {@link Locale#ROOT}, then the default locale ({@link #defaultLocale}); without any, the translatable is left to
- *     other sources.</li>
+ *     {@link Locale#ROOT}, then the default locale ({@link #defaultLocale}) and its less specific forms in the same
+ *     way; without any, the translatable is left to other sources.</li>
  *     <li>The viewer of a render is the locale (its {@link Identity#LOCALE} pointer), so a viewer value or resolver can
  *     read it. The translatable's style is applied where the template sets none, and its children are appended, as
  *     MiniMessage's translator does.</li>
@@ -64,7 +64,8 @@ public final class MiniMessageFlowTranslator implements Translator {
     }
 
     /**
-     * The locale used when neither a player's locale nor its language has a template. None by default.
+     * The locale used when neither a player's locale nor its language has a template. None by default. It falls back
+     * as a player's locale does: a default of {@code en_US} finds a template registered for {@code en}.
      */
     public @NotNull MiniMessageFlowTranslator defaultLocale(@Nullable Locale locale) {
         this.defaultLocale = locale;
@@ -176,9 +177,11 @@ public final class MiniMessageFlowTranslator implements Translator {
 
     /**
      * The less specific locales of each locale asked for, as resource bundles fall back: {@code zh_Hant_TW} gives
-     * {@code zh_Hant}, {@code zh_TW}, {@code zh}, then {@link Locale#ROOT}.
+     * {@code zh_Hant}, {@code zh_TW}, {@code zh}, then {@link Locale#ROOT}. Bounded: a client chooses its own locale,
+     * and one that sends a new one each time does not make it grow.
      */
-    private static final Map<Locale, List<Locale>> CANDIDATES = new ConcurrentHashMap<>();
+    private static final fr.robie.minimessageflow.core.BoundedCache<Locale, List<Locale>> CANDIDATES =
+            new fr.robie.minimessageflow.core.BoundedCache<>(256);
 
     private static @NotNull List<Locale> candidates(@NotNull Locale locale) {
         List<Locale> candidates = new java.util.ArrayList<>(java.util.ResourceBundle.Control
@@ -192,14 +195,34 @@ public final class MiniMessageFlowTranslator implements Translator {
         if (template != null) {
             return template;
         }
-        for (Locale candidate : CANDIDATES.computeIfAbsent(locale, MiniMessageFlowTranslator::candidates)) {
-            template = byLocale.get(candidate);
+        template = fallBack(byLocale, locale);
+        if (template != null) {
+            return template;
+        }
+        Locale fallback = this.defaultLocale;
+        if (fallback == null || fallback.equals(locale)) {
+            return null;
+        }
+        // The default locale falls back as the one asked for: a default of en_US finds a template registered for en.
+        template = byLocale.get(fallback);
+        return template != null ? template : fallBack(byLocale, fallback);
+    }
+
+    private static @Nullable Template fallBack(@NotNull Map<Locale, Template> byLocale, @NotNull Locale locale) {
+        for (Locale candidate : CANDIDATES.get(locale, MiniMessageFlowTranslator::candidates)) {
+            Template template = byLocale.get(candidate);
             if (template != null) {
                 return template;
             }
         }
-        Locale fallback = this.defaultLocale;
-        return fallback != null ? byLocale.get(fallback) : null;
+        return null;
+    }
+
+    /**
+     * How many locales have their less specific locales kept (for tests).
+     */
+    static int cachedLocales() {
+        return CANDIDATES.size();
     }
 
     /**

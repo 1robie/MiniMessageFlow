@@ -35,6 +35,11 @@ final class CompiledTemplate implements Template {
     private final @Nullable List<Object> pieces;
     private final List<String> inlineKeys;
     /**
+     * For each inline value, whether it is out of quotes (in a tag's name, or an argument with quotes of its own):
+     * its {@code :} would start another argument.
+     */
+    private final boolean[] colonBreaking;
+    /**
      * A key is evaluated once per render, wherever it is written (a supplier may give another value each time).
      * For each slot, the first slot with the same key (itself when it is the first).
      */
@@ -84,7 +89,8 @@ final class CompiledTemplate implements Template {
     private static final Object[] NO_VALUES = new Object[0];
 
     CompiledTemplate(@NotNull Engine engine, @NotNull String source, @NotNull String compiled, @NotNull Engine.Slots slots,
-                     @Nullable List<Object> pieces, @NotNull List<String> inlineKeys, @NotNull Engine.Form base,
+                     @Nullable List<Object> pieces, @NotNull List<String> inlineKeys, boolean @NotNull [] colonBreaking,
+                     @NotNull Engine.Form base,
                      @Nullable Engine.Form.Native inline, @Nullable String reason) {
         this.reason = reason;
         this.engine = engine;
@@ -93,6 +99,7 @@ final class CompiledTemplate implements Template {
         this.slots = slots;
         this.pieces = pieces;
         this.inlineKeys = inlineKeys;
+        this.colonBreaking = colonBreaking;
         this.slotSources = new int[slots.size()];
         this.slotPlans = new Engine.KeyPlan[slots.size()];
         for (int slot = 0; slot < this.slotSources.length; slot++) {
@@ -243,7 +250,7 @@ final class CompiledTemplate implements Template {
                 } else {
                     Object value = source >= 0 ? this.given(values, keptValues, source)
                             : this.engine.value(this.inlinePlans[i], placeholders, fast, viewer);
-                    text = Engine.inlineText(this.inlinePlans[i], value);
+                    text = Engine.inlineText(this.inlinePlans[i], value, this.colonBreaking[i]);
                 }
                 if (inline == null) {
                     if (keptInline != null && keptInline[i].equals(text)) {

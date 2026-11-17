@@ -152,9 +152,11 @@ public final class Engine {
     // --- compiling ----------------------------------------------------------------------------------------------
 
     public @NotNull Template compile(@NotNull String source) {
-        String text = stripNoncharacters(source);
+        Set<Integer> unquoted = new java.util.HashSet<>();
+        String text = PlaceholderScanner.quoteArguments(stripNoncharacters(source), Engine::isKey, unquoted);
         Slots slots = new Slots();
         List<String> inlineKeys = new ArrayList<>(0);
+        List<Boolean> inlineUnquoted = new ArrayList<>(0);
         int[] tags = text.indexOf('%') < 0 ? NO_TAGS : PlaceholderScanner.tagRanges(text);
         String tagged = PlaceholderScanner.replace(text, (key, start) -> {
             if (!isKey(key)) {
@@ -162,14 +164,19 @@ public final class Engine {
             }
             if (PlaceholderScanner.inTag(tags, start)) {
                 inlineKeys.add(key);
+                inlineUnquoted.add(unquoted.contains(start));
                 return INLINE_START + String.valueOf(inlineKeys.size() - 1) + INLINE_END;
             }
             return "<" + SLOT_TAG + slots.percent(key) + ">";
         });
         List<Object> pieces = inlineKeys.isEmpty() ? null : pieces(tagged);
         String compiled = pieces == null ? tagged : join(pieces, new String[inlineKeys.size()]);
+        boolean[] colonBreaking = new boolean[inlineUnquoted.size()];
+        for (int i = 0; i < colonBreaking.length; i++) {
+            colonBreaking[i] = inlineUnquoted.get(i);
+        }
         String[] reason = new String[1];
-        Template compiledNatively = this.compileNatively(source, tagged, compiled, slots, pieces, inlineKeys, reason);
+        Template compiledNatively = this.compileNatively(source, tagged, compiled, slots, pieces, inlineKeys, colonBreaking, reason);
         if (compiledNatively != null) {
             return compiledNatively;
         }
@@ -177,7 +184,7 @@ public final class Engine {
         Form base = this.compileForm(compiled, slots, Set.of(), true);
         slots.freeze();
         Form.Native inline = pieces == null ? null : this.compileInline(tagged, pieces, inlineKeys.size(), slots);
-        return new CompiledTemplate(this, source, compiled, slots, pieces, List.copyOf(inlineKeys), base, inline, reason[0]);
+        return new CompiledTemplate(this, source, compiled, slots, pieces, List.copyOf(inlineKeys), colonBreaking, base, inline, reason[0]);
     }
 
     /**
@@ -190,7 +197,7 @@ public final class Engine {
      */
     private @Nullable Template compileNatively(@NotNull String source, @NotNull String tagged, @NotNull String compiled,
                                                @NotNull Slots slots, @Nullable List<Object> pieces, @NotNull List<String> inlineKeys,
-                                               @Nullable String @NotNull [] reason) {
+                                               boolean @NotNull [] colonBreaking, @Nullable String @NotNull [] reason) {
         if (!this.nativeCompiler) {
             reason[0] = "the native compiler is off";
             return null;
@@ -221,12 +228,12 @@ public final class Engine {
         List<String> inlineKeysCopy = List.copyOf(inlineKeys);
         if (pieces != null) {
             Form.Native inline = new Form.Native(parts, null);
-            return new CompiledTemplate(this, source, compiled, trial, pieces, inlineKeysCopy, inline, inline, null);
+            return new CompiledTemplate(this, source, compiled, trial, pieces, inlineKeysCopy, colonBreaking, inline, inline, null);
         }
         Form base = trial.size() == 0
                 ? new Form.Static(Objects.requireNonNull(NativeCompiler.render(parts, new Component[0])))
                 : new Form.Native(parts, new Form.WithValues(compiled, Set.of(), trial));
-        return new CompiledTemplate(this, source, compiled, trial, null, inlineKeysCopy, base, null, null);
+        return new CompiledTemplate(this, source, compiled, trial, null, inlineKeysCopy, colonBreaking, base, null, null);
     }
 
     @NotNull Form compileForm(@NotNull String text, @NotNull Slots slots, @NotNull Set<Integer> unclaimed, boolean discover) {
@@ -609,11 +616,11 @@ public final class Engine {
     /**
      * The plain text of a value written into a tag argument.
      */
-    static @NotNull String inlineText(@NotNull KeyPlan plan, @Nullable Object value) {
+    static @NotNull String inlineText(@NotNull KeyPlan plan, @Nullable Object value, boolean colonBreaking) {
         if (value == null) {
             return plan.written;
         }
-        return stripTagBreaking(value instanceof String text ? text : PLAIN.serialize((Component) value));
+        return stripTagBreaking(value instanceof String text ? text : PLAIN.serialize((Component) value), colonBreaking);
     }
 
     /**
@@ -847,13 +854,15 @@ public final class Engine {
     }
 
     /**
-     * Removes the characters that could end a tag or its quotes, or be read again as a placeholder or a colour.
+     * Removes the characters that could end a tag or its quotes, or be read again as a placeholder or a colour; and
+     * {@code :}, which would start another argument, when the value is not in quotes.
      */
-    private static @NotNull String stripTagBreaking(@NotNull String text) {
+    private static @NotNull String stripTagBreaking(@NotNull String text, boolean colonBreaking) {
         StringBuilder out = null;
         for (int i = 0, length = text.length(); i < length; i++) {
             char c = text.charAt(i);
-            boolean breaking = c == '<' || c == '>' || c == '\'' || c == '"' || c == '\\' || c == '%' || c == '&' || c == '§';
+            boolean breaking = c == '<' || c == '>' || c == '\'' || c == '"' || c == '\\' || c == '%' || c == '&' || c == '§'
+                    || c == ':' && colonBreaking;
             if (breaking && out == null) {
                 out = new StringBuilder(length).append(text, 0, i);
             } else if (!breaking && out != null) {

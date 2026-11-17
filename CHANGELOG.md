@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+- A value in a tag argument without quotes is one argument: a `:` in it no longer starts another.
+  `<click:run_command:/tp %p%>` with `a:b` ran `/tp a`; it runs `/tp a:b`. Such an argument is read as if written
+  in quotes (`'/tp %p%'`). In a tag's name, or in an argument with quotes or a backslash of its own, the value loses
+  its `:` as it loses its quotes.
+- `MiniMessageFlowTranslator`: the default locale falls back as a player's locale does, so a default of `en_US`
+  finds a template registered for `en`. The less specific locales of each locale asked for are kept for 256
+  locales at most (they were kept for every locale ever asked for, and a client chooses its own).
+- A `</reset>` is dropped, as MiniMessage drops it; the native compiler kept it as text (with `verifyNative`, the
+  message went the MiniMessage way).
+- The text of a `<hover:show_text:...>` without values is compacted, as MiniMessage's is.
+
 ## 1.2.0
 
 - `Values` holds computed values: `setComputed(key, supplier)` (asked at each render), `setForViewer(key, function)`

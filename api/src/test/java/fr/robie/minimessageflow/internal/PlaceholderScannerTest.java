@@ -74,4 +74,40 @@ class PlaceholderScannerTest {
         org.junit.jupiter.api.Assertions.assertFalse(PlaceholderScanner.inTag(ranges, 5));
         org.junit.jupiter.api.Assertions.assertTrue(PlaceholderScanner.inTag(ranges, 9));
     }
+
+    private static String quote(String text, java.util.Set<Integer> unquoted) {
+        return PlaceholderScanner.quoteArguments(text, key -> !key.contains(" "), unquoted);
+    }
+
+    @Test
+    @DisplayName("An unquoted argument with a placeholder is put in quotes; the rest is left as written")
+    void quoteArguments() {
+        java.util.Set<Integer> unquoted = new java.util.HashSet<>();
+        assertEquals("<click:run_command:'/tp %p%'>go", quote("<click:run_command:/tp %p%>go", unquoted));
+        assertEquals("<insert:'%p%'>x %p% <red>", quote("<insert:%p%>x %p% <red>", unquoted));
+        assertEquals("<click:'%a%':'/msg %p% '>x", quote("<click:%a%:/msg %p% >x", unquoted));
+        // Already quoted, no placeholder, not a tag: as written.
+        assertEquals("<click:run_command:'/tp %p%'>go", quote("<click:run_command:'/tp %p%'>go", unquoted));
+        assertEquals("<click:run_command:/help>%p%", quote("<click:run_command:/help>%p%", unquoted));
+        assertEquals("a %p% <3 %p%", quote("a %p% <3 %p%", unquoted));
+        // A ':' inside a placeholder does not split the argument.
+        assertEquals("<insert:'%vault:eco%'>x", quote("<insert:%vault:eco%>x", unquoted));
+        assertTrue(unquoted.isEmpty());
+    }
+
+    @Test
+    @DisplayName("A placeholder in a tag's name or beside quotes of its own stays unquoted, and is reported")
+    void unquotedPlaceholders() {
+        java.util.Set<Integer> unquoted = new java.util.HashSet<>();
+        assertEquals("<%c%>x", quote("<%c%>x", unquoted));
+        assertEquals(java.util.Set.of(1), unquoted);
+        unquoted.clear();
+        // The second argument has quotes of its own: left; the third is quoted, and the reported index moves with it.
+        String text = quote("<click:a'b'%p%:%q%>x", unquoted);
+        assertEquals("<click:a'b'%p%:'%q%'>x", text);
+        assertEquals(java.util.Set.of(11), unquoted);
+        unquoted.clear();
+        assertEquals("<insert:'%q%':x%p%\\y>", quote("<insert:%q%:x%p%\\y>", unquoted));
+        assertEquals(java.util.Set.of(15), unquoted);
+    }
 }

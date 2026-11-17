@@ -79,6 +79,14 @@ class TranslatorTest {
     }
 
     @Test
+    @DisplayName("The default locale falls back to its language too")
+    void defaultLocaleFallback() {
+        this.translator.register("only.en", Locale.ENGLISH, "English only").defaultLocale(Locale.US);
+        assertEquals("English only", this.plain(Component.translatable("only.en"), Locale.GERMAN));
+        assertEquals("English only", this.plain(Component.translatable("only.en"), Locale.US));
+    }
+
+    @Test
     @DisplayName("The translatable's style is a fallback, its children are appended")
     void styleAndChildren() {
         this.translator.register("k", Locale.ENGLISH, "<red>red</red> plain");

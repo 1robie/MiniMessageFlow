@@ -65,14 +65,17 @@ public final class ReferenceFormatter implements TestFormatter {
     public @NotNull Component format(@NotNull String message, @NotNull Placeholder placeholders, @Nullable Pointered viewer) {
         TagResolver.Builder tags = TagResolver.builder();
         Map<String, String> tagNames = new HashMap<>();
-        int[] ranges = PlaceholderScanner.tagRanges(message);
-        String text = PlaceholderScanner.replace(message, (key, start) -> {
+        // A value in a tag argument is one argument: the argument is put in quotes, or the value loses its ':'.
+        Set<Integer> unquoted = new HashSet<>();
+        String quoted = PlaceholderScanner.quoteArguments(message, key -> this.value(key, placeholders, viewer) != null, unquoted);
+        int[] ranges = PlaceholderScanner.tagRanges(quoted);
+        String text = PlaceholderScanner.replace(quoted, (key, start) -> {
             Component component = this.value(key, placeholders, viewer);
             if (component == null) {
                 return null;
             }
             if (PlaceholderScanner.inTag(ranges, start)) {
-                return stripTagBreaking(PLAIN.serialize(component));
+                return stripTagBreaking(PLAIN.serialize(component), unquoted.contains(start));
             }
             String tagName = tagNames.get(key);
             if (tagName == null) {
@@ -221,11 +224,12 @@ public final class ReferenceFormatter implements TestFormatter {
         return out.append(LegacyColors.toMiniMessage(text.substring(from))).toString();
     }
 
-    private static @NotNull String stripTagBreaking(@NotNull String text) {
+    private static @NotNull String stripTagBreaking(@NotNull String text, boolean colonBreaking) {
         StringBuilder out = new StringBuilder(text.length());
         for (int i = 0; i < text.length(); i++) {
             char c = text.charAt(i);
-            if (c != '<' && c != '>' && c != '\'' && c != '"' && c != '\\' && c != '%' && c != '&' && c != '§') {
+            if (c != '<' && c != '>' && c != '\'' && c != '"' && c != '\\' && c != '%' && c != '&' && c != '§'
+                    && (c != ':' || !colonBreaking)) {
                 out.append(c);
             }
         }

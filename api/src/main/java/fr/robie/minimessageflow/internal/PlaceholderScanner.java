@@ -204,4 +204,105 @@ public final class PlaceholderScanner {
         }
         return false;
     }
+
+    /**
+     * Puts quotes around each unquoted tag argument that holds a {@code %key%} placeholder, so that a {@code :} in its
+     * value does not start another argument: {@code <click:run_command:/tp %p%>} is read as
+     * {@code <click:run_command:'/tp %p%'>}. An argument with a quote or a backslash of its own is left as written,
+     * as is a tag's name: the {@code %} of each placeholder left out of quotes there goes in {@code unquoted} (an index
+     * in the returned text), and its value then loses its {@code :}. Quotes are read as {@link #tagRanges}
+     * reads them.
+     */
+    public static @NotNull String quoteArguments(@NotNull String text, @NotNull Predicate<String> isKey,
+                                                 @NotNull java.util.Set<Integer> unquoted) {
+        if (text.indexOf('%') < 0) {
+            return text;
+        }
+        // The placeholders, found as compile finds them: start and end (exclusive) of each.
+        java.util.List<int[]> keys = new java.util.ArrayList<>();
+        replace(text, (key, start) -> {
+            if (!isKey.test(key)) {
+                return null;
+            }
+            keys.add(new int[]{start, start + key.length() + 2});
+            return "";
+        });
+        int[] tags = keys.isEmpty() ? new int[0] : tagRanges(text);
+        java.util.List<int[]> wrap = new java.util.ArrayList<>(); // start, end (exclusive) of each argument to put in quotes
+        java.util.List<Integer> bare = new java.util.ArrayList<>(); // the '%' of each placeholder left out of quotes, in text
+        int k = 0;
+        for (int t = 0; t < tags.length; t += 2) {
+            int tagEnd = tags[t + 1] - 1; // its '>'
+            while (k < keys.size() && keys.get(k)[0] < tags[t]) {
+                k++;
+            }
+            if (k == keys.size() || keys.get(k)[0] >= tagEnd) {
+                continue;
+            }
+            int partStart = tags[t] + 1;
+            boolean name = true;
+            boolean special = false; // a quote or a backslash in the part
+            java.util.List<Integer> partKeys = new java.util.ArrayList<>(); // the part's placeholders out of quotes
+            char quote = 0;
+            for (int i = partStart; i <= tagEnd; i++) {
+                if (i < tagEnd && k < keys.size() && keys.get(k)[0] == i) {
+                    if (quote == 0) {
+                        partKeys.add(i);
+                    }
+                    i = keys.get(k++)[1] - 1;
+                    continue;
+                }
+                char c = i < tagEnd ? text.charAt(i) : ':';
+                if (quote != 0) {
+                    if (c == '\\' && i + 1 < tagEnd && (text.charAt(i + 1) == quote || text.charAt(i + 1) == '\\')) {
+                        i++;
+                    } else if (c == quote) {
+                        quote = 0;
+                    }
+                    continue;
+                }
+                if (c == '\'' || c == '"') {
+                    special = true;
+                    if (text.indexOf(c, i + 1) >= 0) {
+                        quote = c;
+                    }
+                } else if (c == '\\') {
+                    special = true;
+                } else if (c == ':') {
+                    if (!partKeys.isEmpty()) {
+                        if (name || special) {
+                            bare.addAll(partKeys);
+                        } else {
+                            wrap.add(new int[]{partStart, i});
+                        }
+                    }
+                    name = false;
+                    special = false;
+                    partKeys.clear();
+                    partStart = i + 1;
+                }
+            }
+        }
+        if (wrap.isEmpty()) {
+            unquoted.addAll(bare);
+            return text;
+        }
+        StringBuilder out = new StringBuilder(text.length() + 2 * wrap.size());
+        int copied = 0;
+        for (int[] part : wrap) {
+            out.append(text, copied, part[0]).append('\'').append(text, part[0], part[1]).append('\'');
+            copied = part[1];
+        }
+        out.append(text, copied, text.length());
+        for (int position : bare) {
+            int shift = 0;
+            for (int[] part : wrap) {
+                if (part[1] <= position) {
+                    shift += 2;
+                }
+            }
+            unquoted.add(position + shift);
+        }
+        return out.toString();
+    }
 }
