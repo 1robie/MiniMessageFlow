@@ -54,16 +54,25 @@ public final class MiniMessageFlow {
         this.numberStyle = modifiers.numberStyle();
         TagResolver tags = builder.tags.isEmpty() ? null
                 : builder.tags.size() == 1 ? builder.tags.getFirst() : TagResolver.resolver(builder.tags);
+        // The value tags added one after another make one resolver, so a key finds its tag with one lookup.
         List<Resolver> resolvers = new ArrayList<>(builder.resolvers.size());
+        Map<String, List<ValueTag>> group = new LinkedHashMap<>();
         for (Resolver resolver : builder.resolvers) {
             if (resolver instanceof PendingValueTag(String name, ValueTag tag)) {
                 if (tags != null && tags.has(name)) {
                     throw new IllegalArgumentException("<" + name + "> is claimed by a tag given to tags(...): it would never reach the value tag");
                 }
-                resolvers.add(new ValueTagResolver(name, tag, modifiers));
+                group.computeIfAbsent(name, n -> new ArrayList<>(1)).add(tag);
             } else {
+                if (!group.isEmpty()) {
+                    resolvers.add(new ValueTagResolver(group, modifiers));
+                    group = new LinkedHashMap<>();
+                }
                 resolvers.add(resolver);
             }
+        }
+        if (!group.isEmpty()) {
+            resolvers.add(new ValueTagResolver(group, modifiers));
         }
         this.engine = new Engine(builder.legacyCodes, resolvers, tags, builder.valueCacheSize,
                 builder.nativeCompiler, builder.verifyNative, builder.caches, builder.errors, modifiers,

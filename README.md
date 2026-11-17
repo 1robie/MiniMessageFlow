@@ -10,7 +10,9 @@ It is the formatting engine of MessageFlow 1.2, tested on Paper 1.20.6, 1.21 and
 
 ## Install
 
-From [JitPack](https://jitpack.io/#1robie/MiniMessageFlow). Adventure is not included: Paper provides it.
+From [JitPack](https://jitpack.io/#1robie/MiniMessageFlow). Adventure is not included: Paper provides it. Two
+artifacts, from 1.3.0: `MiniMessageFlow` (the library, for any platform) and `paper-minimessageflow` (it and the
+[Paper integration](#paper), which brings `MiniMessageFlow` with it).
 
 ```kotlin
 // Gradle (Kotlin DSL)
@@ -18,7 +20,9 @@ repositories {
     maven("https://jitpack.io")
 }
 dependencies {
-    implementation("com.github.1robie:MiniMessageFlow:1.2.1")
+    implementation("com.github.1robie.MiniMessageFlow:MiniMessageFlow:1.3.0")
+    // or, on Paper:
+    // implementation("com.github.1robie.MiniMessageFlow:paper-minimessageflow:1.3.0")
 }
 // Shade it into your plugin and relocate it (shadow plugin):
 tasks.shadowJar {
@@ -34,16 +38,50 @@ tasks.shadowJar {
 </repository>
 
 <dependency>
-    <groupId>com.github.1robie</groupId>
-    <artifactId>MiniMessageFlow</artifactId>
-    <version>1.2.1</version>
+    <groupId>com.github.1robie.MiniMessageFlow</groupId>
+    <artifactId>MiniMessageFlow</artifactId> <!-- or paper-minimessageflow -->
+    <version>1.3.0</version>
 </dependency>
 <!-- maven-shade-plugin: <relocation><pattern>fr.robie.minimessageflow</pattern>
      <shadedPattern>your.plugin.libs.minimessageflow</shadedPattern></relocation> -->
 ```
 
 Relocating is safe: the library finds its Adventure bridges relative to its own package. A local build
-(`./gradlew publishToMavenLocal`) installs it as `fr.robie.minimessageflow:minimessageflow` instead.
+(`./gradlew publishToMavenLocal`) installs it as `fr.robie.minimessageflow:minimessageflow` (and
+`fr.robie.minimessageflow:paper-minimessageflow`) instead.
+
+Up to 1.2.1 the library was `com.github.1robie:MiniMessageFlow`. From 1.3.0 that name still works, but JitPack
+makes it the whole repository: it brings `paper-minimessageflow` along, even off Paper. Use the names above.
+
+## Paper
+
+`paper-minimessageflow` (Paper 1.20.6 and later, up to 26) sets up an instance for a plugin in one call:
+
+```java
+MiniMessageFlow text = PaperFlow.builder(plugin)
+        .configure(builder -> builder.numberStyle(NumberStyle.EUROPEAN))   // anything of MiniMessageFlow.Builder
+        .build();
+
+PaperMessages messages = PaperMessages.load(plugin, "messages.yml", text);   // every message compiled once
+player.sendMessage(messages.format("shop.bought", Placeholder.of("item", "Sword"), player));
+messages.reload();                                                             // on your /reload
+```
+
+- **PlaceholderAPI**, when it is installed: `<papi:vault_eco_balance>` and `%papi:vault_eco_balance%`, and the
+  PlaceholderAPI way `%vault_eco_balance%` (any key of a registered expansion; `PlaceholderApi.Keys.PREFIXED_ONLY`
+  for the `papi:` ones only). Modifiers apply (`<papi:vault_eco_balance:comma>`), the player is the viewer, and its
+  colour codes are read. `mainThreadOnly(true)` asks it on the main thread only.
+- **The viewer and the server**, without any plugin, as `%viewer_name%` or `<viewer_name>`: `viewer_name`,
+  `viewer_displayname` (a component), `viewer_uuid`, `viewer_world`, `viewer_ping`, `viewer_locale`, `viewer_x`,
+  `viewer_y`, `viewer_z`, `server_online`, `server_max`, `server_tps`, `server_mspt`. Add yours the same way:
+  `.placeholders(PaperPlaceholders.builder().player("level", Player::getLevel))` gives `<viewer_level>`.
+- **Errors** (a placeholder that throws) go to the plugin's logger, once per placeholder.
+- Each part can be turned off: `.placeholderApi(false)`, `.placeholders(false)`, `.logErrors(false)`.
+
+They are value tags: a message using them keeps the fast path and asks them once per render. With a new player at
+each render (`PaperBenchmark`, players faked, so compare the pairs): `<papi:vault_eco_balance:comma>` 75 ns and
+232 B against 57 ns and 232 B for a plain resolver giving the same text; `<viewer_name>` and `<server_online>` 84 ns
+and 345 B against 63 ns and 263 B (each value is a component of plain text, never read as tags).
 
 ## Use
 

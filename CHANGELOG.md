@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- New artifact `paper-minimessageflow`, for Paper 1.20.6 to 26: `PaperFlow.builder(plugin)` sets up an instance
+  with PlaceholderAPI when it is installed (`<papi:x>`, `%papi:x%`, and `%x%` for a registered expansion's key;
+  modifiers apply), the viewer's and the server's placeholders (`%viewer_name%`, `<server_online>`... add yours
+  with `PaperPlaceholders`), and errors logged to the plugin once per placeholder. `PaperMessages` compiles the
+  messages of a YAML file and reloads them. Compiled against Paper 1.20.6; CI compiles and tests it against 1.21.11
+  and 26.3 too. With a new player at each render (`PaperBenchmark`, players faked): `<papi:x:comma>` 75 ns and
+  232 B (a plain resolver: 57 ns, 232 B), `<viewer_name>` with `<server_online>` 84 ns and 345 B (63 ns, 263 B).
+- Changed: the JitPack names. The library is `com.github.1robie.MiniMessageFlow:MiniMessageFlow:<version>`, the Paper
+  integration `com.github.1robie.MiniMessageFlow:paper-minimessageflow:<version>`. The old
+  `com.github.1robie:MiniMessageFlow` still works, but brings both: switch to the new name.
+- The value tags added one after another are one resolver, which finds a key's tag with one lookup: 14 of them cost
+  what one does.
+
 - `builder.valueTag(name, ValueTag)`: a tag computed at each render, for the viewer (`<papi:player_name>`,
   `<online>`). It is the placeholder `name:args`, so `<papi:x>` and `%papi:x%` are the same, modifiers apply
   (`<papi:x:comma>`), a message using it keeps the fast path, and it is asked once per render, never while compiling.

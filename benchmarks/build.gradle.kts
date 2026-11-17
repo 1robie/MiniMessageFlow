@@ -14,6 +14,10 @@ dependencies {
     // RenderBenchmark's ...Send: the JSON a server sends.
     jmh(libs.adventure.serializer.gson)
     jmh(libs.annotations)
+    // PaperBenchmark: platform/paper on Paper's API (a server provides it).
+    jmh(project(":platform:paper"))
+    jmh(libs.paper.api)
+    jmh(libs.placeholderapi) { isTransitive = false }
 }
 
 // The comparison with FastMiniMessage is opt-in, so a normal build never fetches a third-party artifact:
