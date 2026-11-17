@@ -21,6 +21,13 @@
 - A component's legacy text keeps its hex colours (`§x§f§f§8§8§0§0`, Bukkit's form); they became the nearest of the
   16 named colours.
 - Documented: the `PlaceholderValue.of...` factories are public; without a viewer, a viewer value is empty text.
+- `builder.key(name)` refuses a name no placeholder can have (whitespace, `% < > & § \ ' " #`): its value never
+  reached a message. The rule is `PlaceholderScanner.isKey`, the one the engine reads tokens with.
+- `Values.set(key, double)`: a number with decimals, written in full without an exponent (`2.5`, `0.000001`), with
+  the decimal point of the instance's `NumberStyle` (`2,5` in `EUROPEAN`), so its number modifiers read it.
+  `ValueKeys.newValues(NumberStyle)` makes values for a style; `MiniMessageFlow.newValues()` uses its own.
+- `Values.toString()` lists the keys set and the kind of each value, never the values.
+- Documented: `set(key, null)` needs a cast (`(String) null`), and `unset` removes a value.
 
 ## 1.2.1
 

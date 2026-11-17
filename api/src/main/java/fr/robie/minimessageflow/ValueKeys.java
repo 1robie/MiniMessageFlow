@@ -69,10 +69,18 @@ public final class ValueKeys {
     }
 
     /**
-     * New values for these keys, all unset.
+     * New values for these keys, all unset; a {@code double} is written in the {@link NumberStyle#AUTO} style.
      */
     public @NotNull Values newValues() {
-        return new Values(this);
+        return new Values(this, NumberStyle.AUTO);
+    }
+
+    /**
+     * New values for these keys, all unset; a {@code double} ({@link Values#set(ValueKey, double)}) is written in a
+     * number style, the one the instance's number modifiers read.
+     */
+    public @NotNull Values newValues(@NotNull NumberStyle numberStyle) {
+        return new Values(this, Objects.requireNonNull(numberStyle, "numberStyle cannot be null"));
     }
 
     boolean owns(@NotNull ValueKey key) {
@@ -91,6 +99,8 @@ public final class ValueKeys {
          * Declares a key, or gives the one already declared with this name.
          *
          * @param name the placeholder's name, as in {@code %name%} or {@code <name>}, without modifiers
+         * @throws IllegalArgumentException when no placeholder can have this name: empty, or with whitespace or one of
+         *                                  {@code % < > & \u00a7 \ ' " #}
          */
         public @NotNull ValueKey key(@NotNull String name) {
             Objects.requireNonNull(name, "name cannot be null");
@@ -99,6 +109,10 @@ public final class ValueKeys {
             }
             if (name.isEmpty()) {
                 throw new IllegalArgumentException("name cannot be empty");
+            }
+            if (name.indexOf('%') >= 0 || !fr.robie.minimessageflow.internal.PlaceholderScanner.isKey(name)) {
+                throw new IllegalArgumentException("no placeholder can be named '" + name
+                        + "': no whitespace and none of % < > & \u00a7 \\ ' \" #");
             }
             ValueKey key = this.byName.get(name);
             if (key == null) {

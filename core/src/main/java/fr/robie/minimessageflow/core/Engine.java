@@ -839,18 +839,11 @@ public final class Engine {
     // --- text ---------------------------------------------------------------------------------------------------
 
     /**
-     * Whether a token can be a placeholder key: no whitespace and none of the characters a tag, an escape or a
-     * legacy code uses. Such a token is never resolved, so the scan finds the same tokens whatever the values.
+     * Whether a token can be a placeholder key: {@link PlaceholderScanner#isKey}, the rule a declared key's name
+     * follows too.
      */
     private static boolean isKey(@NotNull String key) {
-        for (int i = 0; i < key.length(); i++) {
-            char c = key.charAt(i);
-            if (Character.isWhitespace(c) || c == '<' || c == '>' || c == '&' || c == '§' || c == '\\' || c == '\''
-                    || c == '"' || c == '#') {
-                return false;
-            }
-        }
-        return true;
+        return PlaceholderScanner.isKey(key);
     }
 
     /**

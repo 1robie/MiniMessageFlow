@@ -37,14 +37,21 @@ public final class Values {
      * null when unset.
      */
     private final Object[] values;
+    /**
+     * How {@link #set(ValueKey, double)} writes a decimal: the style the instance's number modifiers read.
+     */
+    private final NumberStyle numberStyle;
 
-    Values(@NotNull ValueKeys keys) {
+    Values(@NotNull ValueKeys keys, @NotNull NumberStyle numberStyle) {
         this.keys = keys;
         this.values = new Object[keys.size()];
+        this.numberStyle = numberStyle;
     }
 
     /**
-     * Sets a text value. Null is the empty text, as in {@link Placeholder}.
+     * Sets a text value. Null is the empty text, as in {@link Placeholder}: write it {@code set(key, (String) null)},
+     * since a bare {@code null} also fits the other {@code set} methods. To remove the value instead (the key then has
+     * no value from the call, and the resolvers are asked), use {@link #unset}.
      */
     public @NotNull Values set(@NotNull ValueKey key, @Nullable String value) {
         this.values[this.index(key)] = value == null ? "" : value;
@@ -60,7 +67,26 @@ public final class Values {
     }
 
     /**
-     * Sets a component value, inserted with its own style. Null is the empty component.
+     * Sets a number that may have decimals, written in full without an exponent ({@code 2.5}, {@code 0.000001},
+     * {@code 1000}) with the decimal point of the instance's {@link NumberStyle} ({@code 2,5} in
+     * {@link NumberStyle#EUROPEAN}), so its number modifiers read it: {@code %price.2f%}, {@code %price.comma%}.
+     *
+     * @throws IllegalArgumentException for {@code NaN} or an infinity, which no number modifier reads
+     */
+    public @NotNull Values set(@NotNull ValueKey key, double value) {
+        if (!Double.isFinite(value)) {
+            throw new IllegalArgumentException("not a number: " + value);
+        }
+        int index = this.index(key);
+        String text = value == (long) value && Math.abs(value) < 0x1p63 ? Long.toString((long) value)
+                : java.math.BigDecimal.valueOf(value).stripTrailingZeros().toPlainString();
+        this.values[index] = this.numberStyle == NumberStyle.EUROPEAN ? text.replace('.', ',') : text;
+        return this;
+    }
+
+    /**
+     * Sets a component value, inserted with its own style. Null is the empty component ({@code set(key,
+     * (ComponentLike) null)}).
      */
     public @NotNull Values set(@NotNull ValueKey key, @Nullable ComponentLike value) {
         this.values[this.index(key)] = value == null ? Component.empty() : value.asComponent();
@@ -147,6 +173,37 @@ public final class Values {
             }
         }
         return builder.build();
+    }
+
+    /**
+     * The keys and the kind of each value set, never the values themselves (a log does not show a player's data):
+     * {@code Values{player=text, item=component, time=dynamic}}. Unset keys are left out.
+     */
+    @Override
+    public String toString() {
+        StringBuilder out = new StringBuilder("Values{");
+        int start = out.length();
+        for (int i = 0; i < this.values.length; i++) {
+            Object value = this.values[i];
+            if (value == null) {
+                continue;
+            }
+            if (out.length() > start) {
+                out.append(", ");
+            }
+            out.append(this.keys.nameAt(i)).append('=').append(switch (value) {
+                case String ignored -> "text";
+                case Component ignored -> "component";
+                case PlaceholderValue.StaticValue ignored -> "text";
+                case PlaceholderValue.DynamicValue ignored -> "dynamic";
+                case PlaceholderValue.ViewerValue ignored -> "viewer";
+                case PlaceholderValue.ComponentValue ignored -> "component";
+                case PlaceholderValue.DynamicComponentValue ignored -> "dynamic component";
+                case PlaceholderValue.ViewerComponentValue ignored -> "viewer component";
+                default -> value.getClass().getSimpleName();
+            });
+        }
+        return out.append('}').toString();
     }
 
     private int index(@NotNull ValueKey key) {

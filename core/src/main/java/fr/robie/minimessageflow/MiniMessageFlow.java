@@ -40,11 +40,17 @@ public final class MiniMessageFlow {
     private final Engine engine;
     private final Cache<String, Template> templates;
     private final ValueKeys keys;
+    /**
+     * How the number modifiers read numbers, and so how {@link Values} writes a {@code double}.
+     */
+    private final NumberStyle numberStyle;
 
     private MiniMessageFlow(@NotNull Builder builder) {
         this.keys = builder.keys.build();
+        ModifierSet modifiers = builder.modifiers.build();
+        this.numberStyle = modifiers.numberStyle();
         this.engine = new Engine(builder.legacyCodes, builder.resolvers, builder.tags, builder.valueCacheSize,
-                builder.nativeCompiler, builder.verifyNative, builder.caches, builder.errors, builder.modifiers.build(),
+                builder.nativeCompiler, builder.verifyNative, builder.caches, builder.errors, modifiers,
                 builder.bareHexColors, builder.keys.build(), builder.constants);
         this.templates = builder.caches.create(CacheFactory.Kind.TEMPLATES, builder.templateCacheSize);
     }
@@ -73,7 +79,7 @@ public final class MiniMessageFlow {
      * that renders, set it for each send, and give it to {@link Template#render(Values, Pointered)}.
      */
     public @NotNull Values newValues() {
-        return this.keys.newValues();
+        return this.keys.newValues(this.numberStyle);
     }
 
     /**

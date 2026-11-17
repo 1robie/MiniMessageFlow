@@ -116,6 +116,25 @@ public final class PlaceholderScanner {
     }
 
     /**
+     * Whether a token can be a placeholder key: no whitespace and none of the characters a tag, an escape or a
+     * legacy code uses. Such a token is never resolved, so a scan finds the same tokens whatever the values. A
+     * declared key's name ({@code builder.key(name)}) must also hold no {@code %}, which would end its token.
+     *
+     * @param key the token without its {@code %}
+     * @return true when the token can be a placeholder
+     */
+    public static boolean isKey(@NotNull String key) {
+        for (int i = 0; i < key.length(); i++) {
+            char c = key.charAt(i);
+            if (Character.isWhitespace(c) || c == '<' || c == '>' || c == '&' || c == '\u00a7' || c == '\\' || c == '\''
+                    || c == '"' || c == '#') {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
      * Where the tags of a text are, as MiniMessage's tokenizer finds them ({@code TokenParser.parseString}, the same
      * from Adventure 4.17 to 5.2; {@code TagRangesTest} in core compares the two): {@code start, end} pairs (end
      * exclusive), in order. A {@code <} opens a tag only when a {@code >} closes it before another {@code <}: the
