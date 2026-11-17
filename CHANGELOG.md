@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- `builder.valueTag(name, ValueTag)`: a tag computed at each render, for the viewer (`<papi:player_name>`,
+  `<online>`). It is the placeholder `name:args`, so `<papi:x>` and `%papi:x%` are the same, modifiers apply
+  (`<papi:x:comma>`), a message using it keeps the fast path, and it is asked once per render, never while compiling.
+  A name a standard tag or a `tags(...)` tag claims is refused. A value for the viewer, a new viewer at each render
+  (`TagBenchmark`, JMH, 1 s iterations): `<papi:player_name>` as a value tag 45 ns and 200 B, as a resolver's
+  `%player_name%` 43 ns and 200 B. A plain `TagResolver` tag there is resolved once when compiled, so it shows the
+  same value to every viewer. Renders without value tags are unchanged: the same bytes per render, the same time
+  within the error bars (`RenderBenchmark`, `TemplateBenchmark`).
+- Changed: `builder.tags(TagResolver)` adds to the tags given before instead of replacing them (the last one added
+  wins a name both claim). `builder.tag(name, Tag)` adds one tag.
+- Documented: a `TagResolver` tag is a tag of the message: it may be resolved once when the message is compiled, and
+  is not given the viewer. For a value that changes, use `valueTag`.
+
 - `Placeholder.parse(message, viewer, ModifierSet)`: reads modifiers with a set, so `parse` can give the text a
   `MiniMessageFlow` renders (its own modifiers, its number style). `parse(message)` and `parse(message, viewer)` use
   the shared modifiers in the `AUTO` style, as before, and now say so.

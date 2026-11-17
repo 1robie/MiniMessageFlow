@@ -4,9 +4,12 @@ import fr.robie.minimessageflow.cache.Cache;
 import fr.robie.minimessageflow.cache.CacheFactory;
 import fr.robie.minimessageflow.core.BoundedCache;
 import fr.robie.minimessageflow.core.Engine;
+import fr.robie.minimessageflow.core.ValueTagResolver;
 import net.kyori.adventure.pointer.Pointered;
 import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.minimessage.tag.Tag;
 import net.kyori.adventure.text.minimessage.tag.resolver.TagResolver;
+import net.kyori.adventure.text.minimessage.tag.standard.StandardTags;
 import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
@@ -49,7 +52,20 @@ public final class MiniMessageFlow {
         this.keys = builder.keys.build();
         ModifierSet modifiers = builder.modifiers.build();
         this.numberStyle = modifiers.numberStyle();
-        this.engine = new Engine(builder.legacyCodes, builder.resolvers, builder.tags, builder.valueCacheSize,
+        TagResolver tags = builder.tags.isEmpty() ? null
+                : builder.tags.size() == 1 ? builder.tags.getFirst() : TagResolver.resolver(builder.tags);
+        List<Resolver> resolvers = new ArrayList<>(builder.resolvers.size());
+        for (Resolver resolver : builder.resolvers) {
+            if (resolver instanceof PendingValueTag(String name, ValueTag tag)) {
+                if (tags != null && tags.has(name)) {
+                    throw new IllegalArgumentException("<" + name + "> is claimed by a tag given to tags(...): it would never reach the value tag");
+                }
+                resolvers.add(new ValueTagResolver(name, tag, modifiers));
+            } else {
+                resolvers.add(resolver);
+            }
+        }
+        this.engine = new Engine(builder.legacyCodes, resolvers, tags, builder.valueCacheSize,
                 builder.nativeCompiler, builder.verifyNative, builder.caches, builder.errors, modifiers,
                 builder.bareHexColors, builder.keys.build(), builder.constants);
         this.templates = builder.caches.create(CacheFactory.Kind.TEMPLATES, builder.templateCacheSize);
@@ -169,10 +185,25 @@ public final class MiniMessageFlow {
         };
     }
 
+    /**
+     * A value tag added to the builder, kept at its place among the resolvers until the instance is built and knows
+     * its modifiers. Never asked.
+     */
+    private record PendingValueTag(@NotNull String name, @NotNull ValueTag tag) implements Resolver {
+        @Override
+        public @Nullable String resolve(@NotNull String key, @Nullable Pointered viewer) {
+            throw new IllegalStateException("not built");
+        }
+    }
+
     public static final class Builder {
         private boolean legacyCodes = true;
+        /**
+         * The resolvers, and the value tags at their place among them ({@link PendingValueTag}, made into resolvers
+         * when the instance is built, with its modifiers).
+         */
         private final List<Resolver> resolvers = new ArrayList<>();
-        private @Nullable TagResolver tags;
+        private final List<TagResolver> tags = new ArrayList<>();
         private int templateCacheSize = 1024;
         private int valueCacheSize = 512;
         private boolean nativeCompiler = true;
@@ -236,12 +267,53 @@ public final class MiniMessageFlow {
         }
 
         /**
-         * Extra MiniMessage tags, tried before the standard ones. A tag claimed here is never a {@code <key>}
-         * placeholder.
+         * Adds MiniMessage tags, tried before the standard ones; each call adds to the ones before it, and for a tag
+         * two calls claim, the last one added wins (as a value registered again replaces the first). A tag claimed
+         * here is never a {@code <key>} placeholder.
+         * <p>
+         * These are tags of the message itself (a style, a prefix, a custom gradient): one may be resolved once, when
+         * the message is compiled, and is not given the viewer. It must give the same result for the same arguments.
+         * For a value that changes with the viewer or with time, use {@link #valueTag}.
          */
         public @NotNull Builder tags(@NotNull TagResolver tags) {
-            this.tags = Objects.requireNonNull(tags, "tags cannot be null");
+            this.tags.add(Objects.requireNonNull(tags, "tags cannot be null"));
             return this;
+        }
+
+        /**
+         * Adds one MiniMessage tag, as {@link #tags} does: {@code tag("prefix", Tag.selfClosingInserting(prefix))}.
+         *
+         * @param name the tag's name, lower case: letters, digits, {@code _} and {@code -}
+         */
+        public @NotNull Builder tag(@NotNull String name, @NotNull Tag tag) {
+            Objects.requireNonNull(tag, "tag cannot be null");
+            return this.tags(TagResolver.resolver(tagName(name), tag));
+        }
+
+        /**
+         * Adds a tag whose value is computed at each render, for the viewer: {@code <papi:player_name>},
+         * {@code <online>}. It is a placeholder with arguments ({@code <name:a:b>} and {@code %name:a:b%} are the same)
+         * and is asked with the resolvers, in the order they are added: see {@link ValueTag}.
+         *
+         * @param name the tag's name, lower case: letters, digits, {@code _} and {@code -}; not a standard tag's
+         *             ({@code red}, {@code click}...) nor one of {@link #tags}', which would claim it first
+         * @throws IllegalArgumentException for another name, checked when the instance is built for the tags'
+         */
+        public @NotNull Builder valueTag(@NotNull String name, @NotNull ValueTag tag) {
+            String checked = tagName(name);
+            if (StandardTags.defaults().has(checked)) {
+                throw new IllegalArgumentException("'" + checked + "' is a standard tag: <" + checked + "> would never reach the value tag");
+            }
+            this.resolvers.add(new PendingValueTag(checked, Objects.requireNonNull(tag, "tag cannot be null")));
+            return this;
+        }
+
+        private static @NotNull String tagName(@NotNull String name) {
+            Objects.requireNonNull(name, "name cannot be null");
+            if (name.isEmpty() || !name.chars().allMatch(c -> c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '_' || c == '-')) {
+                throw new IllegalArgumentException("a tag's name is lower-case letters, digits, '_' and '-': '" + name + "'");
+            }
+            return name;
         }
 
         /**

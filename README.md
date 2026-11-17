@@ -79,13 +79,18 @@ Component once = text.format("<red>Hello %name%", Placeholder.of("name", "Steve"
 - **Resolvers** give the values a call doesn't: global placeholders, PlaceholderAPI... Their text is formatted, and
   read on its own: its colours and unclosed tags end with it. A resolver can also give a component
   (`resolveComponent`, asked first), inserted as it is and never parsed.
-- **Builder options**: `legacyCodes(boolean)`, `tags(TagResolver)` (your own tags, which can replace standard ones),
-  `templateCacheSize`, `valueCacheSize`, `cacheFactory(CacheFactory)` (your caches, for example Guava or Caffeine with
+- **Builder options**: `legacyCodes(boolean)`, `tags(TagResolver)` and `tag(name, Tag)` (your own tags, which can
+  replace standard ones; each call adds to the others; a tag of the message, which may be resolved once when it is
+  compiled), `valueTag(name, ValueTag)` (a tag computed at each render for the viewer, below), `templateCacheSize`, `valueCacheSize`, `cacheFactory(CacheFactory)` (your caches, for example Guava or Caffeine with
   an expiry; the default is a bounded map without dependency), `nativeCompiler(boolean)`,
   `errorHandler(BiConsumer<String, Throwable>)` (told when a resolver or a value throws; by default one warning per
   key in the log), `modifier(name, modifier)` (a modifier of this instance only), `bareHexColors(boolean)` (false: a
   `#rrggbb` without `&` is text, so `Issue #123456` keeps its number), `numberStyle(NumberStyle)` (how the number
   modifiers read and write separators, below).
+- **Value tags**: `valueTag("papi", (arguments, viewer) -> ...)` makes `<papi:player_name>` and
+  `%papi:player_name%` (the same placeholder) ask your function at each render, with the viewer. Modifiers apply
+  (`<papi:vault_eco_balance:comma>`), a message using it keeps the fast path, and it is never called while a message
+  is compiled. Return text (formatted, as a resolver's) or a component (`resolveComponent`).
 - **Number style**: `AUTO` (the default) reads `1,234` as 1234 and `1,5` as 1.5, and writes `1,234.50`; `ENGLISH`
   reads and writes `1,234.50` only; `EUROPEAN` reads `1.234,50` and `1 234,50` and writes `1.234,50`. A value that
   does not fit the style is not a number, and the placeholder is kept as written. To let a server owner choose:
