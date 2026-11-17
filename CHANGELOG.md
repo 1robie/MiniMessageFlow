@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.3.0
 
 - New artifact `paper-minimessageflow`, for Paper 1.20.6 to 26: `PaperFlow.builder(plugin)` sets up an instance
   with PlaceholderAPI when it is installed (`<papi:x>`, `%papi:x%`, and `%x%` for a registered expansion's key;

@@ -5,7 +5,7 @@ colour codes (`&c`, `§c`, `&#rrggbb`, `#rrggbb`) and placeholders written `%nam
 once and renders it in nanoseconds. It runs on Adventure 4.17 (Paper 1.20.6) to 5.x (Minecraft 26), and has no
 dependency besides Adventure.
 
-It is the formatting engine of MessageFlow 1.2, tested on Paper 1.20.6, 1.21 and 26. Version 1.2.1
+It is the formatting engine of MessageFlow 1.2, tested on Paper 1.20.6, 1.21 and 26. Version 1.3.0
 ([changelog](CHANGELOG.md)).
 
 ## Install
