@@ -181,7 +181,7 @@ public final class Engine {
             return compiledNatively;
         }
         // Finds the <key> slots; for a message without inline values, this is also its form.
-        Form base = this.compileForm(compiled, slots, Set.of(), true);
+        Form base = this.compileForm(compiled, slots, SlotSet.EMPTY, true);
         slots.freeze();
         Form.Native inline = pieces == null ? null : this.compileInline(tagged, pieces, inlineKeys.size(), slots);
         return new CompiledTemplate(this, source, compiled, slots, pieces, List.copyOf(inlineKeys), colonBreaking, base, inline, reason[0]);
@@ -204,7 +204,7 @@ public final class Engine {
         }
         Slots trial = slots.copy();
         List<NativeCompiler.Part> parts = NativeCompiler.compile(this.legacy(tagged), StandardTags.defaults(), this.userTags, this.modifiers,
-                trial, Set.of(), true, reason);
+                trial, SlotSet.EMPTY, true, reason);
         if (parts == null) {
             return null;
         }
@@ -213,13 +213,13 @@ public final class Engine {
         if (this.verifyNative) {
             boolean transform = NativeCompiler.hasTransform(parts);
             for (boolean longer : transform ? new boolean[]{false, true} : new boolean[]{true}) {
-                Component[] probe = this.probe(trial, Set.of(), longer);
+                Component[] probe = this.probe(trial, SlotSet.EMPTY, longer);
                 String[] inline = new String[inlineKeys.size()];
                 for (int i = 0; i < inline.length; i++) {
                     inline[i] = PROBE + "i" + i + (longer ? "-longer probe value" : "") + PROBE;
                 }
                 String text = pieces == null ? compiled : join(pieces, inline);
-                Component reparsed = this.miniMessage.deserialize(this.legacy(text), new SlotTags(trial, Set.of(), false, probe));
+                Component reparsed = this.miniMessage.deserialize(this.legacy(text), new SlotTags(trial, SlotSet.EMPTY, false, probe));
                 if (!same(NativeCompiler.render(parts, probe, inline), reparsed)) {
                     return null;
                 }
@@ -232,11 +232,11 @@ public final class Engine {
         }
         Form base = trial.size() == 0
                 ? new Form.Static(Objects.requireNonNull(NativeCompiler.render(parts, new Component[0])))
-                : new Form.Native(parts, new Form.WithValues(compiled, Set.of(), trial));
+                : new Form.Native(parts, new Form.WithValues(compiled, SlotSet.EMPTY, trial));
         return new CompiledTemplate(this, source, compiled, trial, null, inlineKeysCopy, colonBreaking, base, null, null);
     }
 
-    @NotNull Form compileForm(@NotNull String text, @NotNull Slots slots, @NotNull Set<Integer> unclaimed, boolean discover) {
+    @NotNull Form compileForm(@NotNull String text, @NotNull Slots slots, @NotNull SlotSet unclaimed, boolean discover) {
         SlotTags slotTags = new SlotTags(slots, unclaimed, discover, null);
         Component parsed = this.templateMiniMessage.deserialize(this.legacy(text), slotTags);
         if (!slotTags.claimedAny) {
@@ -273,7 +273,7 @@ public final class Engine {
     /**
      * Unique plain values for the slots, short (as long as a marker) or long.
      */
-    private @Nullable Component @NotNull [] probe(@NotNull Slots slots, @NotNull Set<Integer> unclaimed, boolean longer) {
+    private @Nullable Component @NotNull [] probe(@NotNull Slots slots, @NotNull SlotSet unclaimed, boolean longer) {
         Component[] probe = new Component[slots.size()];
         for (int slot = 0; slot < probe.length; slot++) {
             probe[slot] = unclaimed.contains(slot) ? null
@@ -296,18 +296,18 @@ public final class Engine {
             return null;
         }
         List<NativeCompiler.Part> parts = NativeCompiler.compile(this.legacy(tagged), StandardTags.defaults(), this.userTags, this.modifiers,
-                slots, Set.of());
+                slots, SlotSet.EMPTY);
         if (parts == null) {
             return null;
         }
         if (this.verifyNative) {
             for (boolean longer : new boolean[]{false, true}) {
-                Component[] probe = this.probe(slots, Set.of(), longer);
+                Component[] probe = this.probe(slots, SlotSet.EMPTY, longer);
                 String[] inline = new String[inlineCount];
                 for (int i = 0; i < inlineCount; i++) {
                     inline[i] = PROBE + "i" + i + (longer ? "-longer probe value" : "") + PROBE;
                 }
-                Component reparsed = this.miniMessage.deserialize(this.legacy(join(pieces, inline)), new SlotTags(slots, Set.of(), false, probe));
+                Component reparsed = this.miniMessage.deserialize(this.legacy(join(pieces, inline)), new SlotTags(slots, SlotSet.EMPTY, false, probe));
                 if (!same(NativeCompiler.render(parts, probe, inline), reparsed)) {
                     return null;
                 }
@@ -323,7 +323,7 @@ public final class Engine {
         return NativeCompiler.render(form.parts(), values, inline);
     }
 
-    @NotNull Form inlineForm(@NotNull String text, @NotNull Slots slots, @NotNull Set<Integer> unclaimed) {
+    @NotNull Form inlineForm(@NotNull String text, @NotNull Slots slots, @NotNull SlotSet unclaimed) {
         return this.inlineForms.get(new InlineKey(text, unclaimed), key -> this.compileForm(text, slots, unclaimed, false));
     }
 
@@ -332,7 +332,7 @@ public final class Engine {
      */
     private final class SlotTags implements TagResolver {
         private final Slots slots;
-        private final Set<Integer> unclaimed;
+        private final SlotSet unclaimed;
         private final boolean discover;
         /**
          * The values to insert, or null to insert markers.
@@ -343,7 +343,7 @@ public final class Engine {
          */
         boolean claimedAny;
 
-        SlotTags(@NotNull Slots slots, @NotNull Set<Integer> unclaimed, boolean discover, @Nullable Component @Nullable [] values) {
+        SlotTags(@NotNull Slots slots, @NotNull SlotSet unclaimed, boolean discover, @Nullable Component @Nullable [] values) {
             this.slots = slots;
             this.unclaimed = unclaimed;
             this.discover = discover;
@@ -395,7 +395,7 @@ public final class Engine {
             case Form.Markers(Component component, Object spine) -> fill(spine, values);
             // The values as they are make the key (a text's hash is kept by the String; the array is this render's
             // own and is never changed): they only become components when the message has to be parsed.
-            case Form.WithValues(String text, Set<Integer> unclaimed, Slots slots) -> this.withValues.get(
+            case Form.WithValues(String text, SlotSet unclaimed, Slots slots) -> this.withValues.get(
                     new ValuesKey(text, unclaimed, Arrays.asList(values)),
                     key -> this.miniMessage.deserialize(this.legacy(text), new SlotTags(slots, unclaimed, false, components(values))));
         };
@@ -953,14 +953,14 @@ public final class Engine {
         /**
          * Parsed with the values, cached by values.
          */
-        record WithValues(@NotNull String text, @NotNull Set<Integer> unclaimed, @NotNull Slots slots) implements Form {
+        record WithValues(@NotNull String text, @NotNull SlotSet unclaimed, @NotNull Slots slots) implements Form {
         }
     }
 
-    private record ValuesKey(@NotNull String text, @NotNull Set<Integer> unclaimed, @NotNull List<Object> values) {
+    private record ValuesKey(@NotNull String text, @NotNull SlotSet unclaimed, @NotNull List<Object> values) {
     }
 
-    private record InlineKey(@NotNull String text, @NotNull Set<Integer> unclaimed) {
+    private record InlineKey(@NotNull String text, @NotNull SlotSet unclaimed) {
     }
 
     /**

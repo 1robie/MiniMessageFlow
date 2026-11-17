@@ -9,7 +9,6 @@ import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -70,7 +69,7 @@ final class CompiledTemplate implements Template {
     private final @Nullable Component fixed;
     private final Kind kind;
     private final List<String> placeholders;
-    private final ConcurrentHashMap<Set<Integer>, Engine.Form> variants = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<SlotSet, Engine.Form> variants = new ConcurrentHashMap<>();
     /**
      * The last render, given again while the values are the same: a message sent to many players with the same
      * values, a line drawn again with nothing changed. Not volatile: a thread that sees an older one only misses.
@@ -211,17 +210,20 @@ final class CompiledTemplate implements Template {
         Last last = this.last.get();
         Object[] keptValues = last == null ? null : last.values;
         Object[] values = null;
-        Set<Integer> unknown = null;
+        // The <key> slots without a value, as bits: slots 0 to 63 in a long, more in an array (rare).
+        long unknown = 0;
+        long[] unknownMore = null;
         for (int slot = 0; slot < size; slot++) {
             int source = this.slotSources[slot];
             Object value = source != slot ? this.given(values, keptValues, source)
                     : this.engine.value(this.slotPlans[slot], placeholders, fast, viewer);
             if (value == null) {
                 if (this.slots.isName(slot)) {
-                    if (unknown == null) {
-                        unknown = new HashSet<>(4);
+                    if (slot < 64) {
+                        unknown |= 1L << slot;
+                    } else {
+                        unknownMore = SlotSet.set(unknownMore == null ? new long[2] : unknownMore, slot);
                     }
-                    unknown.add(slot);
                 } else {
                     value = this.slotPlans[slot].written;
                 }
@@ -282,7 +284,14 @@ final class CompiledTemplate implements Template {
             // The same values, other inline texts: the last render's values, which are never changed.
             values = keptValues != null ? keptValues : NO_VALUES;
         }
-        Component rendered = this.build(values, unknown, inline);
+        SlotSet unclaimed;
+        if (unknownMore == null) {
+            unclaimed = SlotSet.of(unknown);
+        } else {
+            unknownMore[0] |= unknown;
+            unclaimed = SlotSet.of(unknownMore);
+        }
+        Component rendered = this.build(values, unclaimed, inline);
         // Kept after about one miss in eight while kept renders are given again (values that come again are kept within
         // a few renders), one in 64 while they are not (values that change at each render). The arrays are this
         // render's own and are never changed: kept as they are.
@@ -329,8 +338,7 @@ final class CompiledTemplate implements Template {
         return value == this.slotPlans[slot].written ? null : value;
     }
 
-    private @NotNull Component build(@Nullable Object @NotNull [] values, @Nullable Set<Integer> unknown, @NotNull String @Nullable [] inline) {
-        Set<Integer> unclaimed = unknown == null ? Set.of() : Set.copyOf(unknown);
+    private @NotNull Component build(@Nullable Object @NotNull [] values, @NotNull SlotSet unclaimed, @NotNull String @Nullable [] inline) {
         Engine.Form form;
         if (inline == null) {
             form = unclaimed.isEmpty() ? this.base : this.variant(unclaimed);
@@ -346,7 +354,7 @@ final class CompiledTemplate implements Template {
         return this.engine.render(form, values);
     }
 
-    private @NotNull Engine.Form variant(@NotNull Set<Integer> unclaimed) {
+    private @NotNull Engine.Form variant(@NotNull SlotSet unclaimed) {
         Engine.Form form = this.variants.get(unclaimed);
         if (form != null) {
             return form;

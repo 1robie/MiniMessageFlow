@@ -49,6 +49,8 @@ public class RenderBenchmark {
     private final Template langArgument = this.flow.compile("<lang:chat.type.text:'%name%':'<green>%item%'>");
     private final Template gradient = this.flow.compile("<gradient:red:blue>Welcome %name%!</gradient>");
     private final Template moreTags = this.flow.compile("<font:uniform>%item%</font> <lang:block.minecraft.stone> <key:key.jump> <transition:red:blue:0.4>%price%");
+    // A <key> without a value: it shows as written, and the render looks up the form for that unknown key.
+    private final Template unknownKey = this.flow.compile("<green>%item%</green> for <gold>%price%</gold> <missing>");
     private final Template markers = MiniMessageFlow.builder().nativeCompiler(false).build()
             .compile("<green>%item%</green> for <gold>%price.comma%</gold> <click:run_command:'/buy 42'>[Buy]");
 
@@ -99,7 +101,8 @@ public class RenderBenchmark {
                 Map.entry("twenty", this.twenty), Map.entry("three", this.three), Map.entry("shop", this.shop),
                 Map.entry("clickValue", this.clickValue), Map.entry("hover", this.hover),
                 Map.entry("langArgument", this.langArgument), Map.entry("gradient", this.gradient),
-                Map.entry("moreTags", this.moreTags), Map.entry("markers", this.markers)));
+                Map.entry("moreTags", this.moreTags), Map.entry("markers", this.markers),
+                Map.entry("unknownKey", this.unknownKey)));
         templates.forEach((name, template) -> System.out.println("[shape] " + name + ": " + template.kind() + ", "
                 + count(template.render(this.sets[0])) + " components"));
     }
@@ -114,6 +117,11 @@ public class RenderBenchmark {
 
     private Placeholder next() {
         return this.sets[this.counter++ & (SETS - 1)];
+    }
+
+    @Benchmark
+    public Component unknownKey() {
+        return this.unknownKey.render(this.next());
     }
 
     @Benchmark

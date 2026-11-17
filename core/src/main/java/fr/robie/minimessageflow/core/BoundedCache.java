@@ -10,8 +10,9 @@ import java.util.function.Function;
 
 /**
  * A thread-safe cache that never holds more than about {@code maximumSize} entries. When it is full, a quarter of
- * the entries are dropped, oldest first in practice but not exactly (no access order is kept, so a hit costs one
- * {@code ConcurrentHashMap} lookup and nothing else).
+ * the entries are dropped, in the map's own order (by hash, neither oldest nor least used first: an entry used at
+ * every call can be dropped and loaded again). No order is kept, so a hit costs one {@code ConcurrentHashMap} lookup
+ * and nothing else.
  */
 @ApiStatus.Internal
 public final class BoundedCache<K, V> implements fr.robie.minimessageflow.cache.Cache<K, V> {

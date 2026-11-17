@@ -72,11 +72,11 @@ final class NativeCompiler {
     private final @Nullable TagResolver userTags;
     private final ModifierSet modifiers;
     private final Engine.Slots slots;
-    private final Set<Integer> unclaimed;
+    private final SlotSet unclaimed;
     private final boolean discover;
 
     private NativeCompiler(@NotNull TagResolver standard, @Nullable TagResolver userTags, @NotNull ModifierSet modifiers, @NotNull Engine.Slots slots,
-                           @NotNull Set<Integer> unclaimed, boolean discover) {
+                           @NotNull SlotSet unclaimed, boolean discover) {
         this.standard = standard;
         this.userTags = userTags;
         this.modifiers = modifiers;
@@ -91,7 +91,7 @@ final class NativeCompiler {
      * @return the parts, or null when the message needs MiniMessage
      */
     static @Nullable List<Part> compile(@NotNull String text, @NotNull TagResolver standard, @Nullable TagResolver userTags, @NotNull ModifierSet modifiers,
-                                        @NotNull Engine.Slots slots, @NotNull Set<Integer> unclaimed) {
+                                        @NotNull Engine.Slots slots, @NotNull SlotSet unclaimed) {
         return compile(text, standard, userTags, modifiers, slots, unclaimed, false);
     }
 
@@ -100,7 +100,7 @@ final class NativeCompiler {
      *                 message; {@code slots} must then be a copy that is dropped when this returns null)
      */
     static @Nullable List<Part> compile(@NotNull String text, @NotNull TagResolver standard, @Nullable TagResolver userTags, @NotNull ModifierSet modifiers,
-                                        @NotNull Engine.Slots slots, @NotNull Set<Integer> unclaimed, boolean discover) {
+                                        @NotNull Engine.Slots slots, @NotNull SlotSet unclaimed, boolean discover) {
         return compile(text, standard, userTags, modifiers, slots, unclaimed, discover, null);
     }
 
@@ -108,7 +108,7 @@ final class NativeCompiler {
      * @param reason where the reason is put (at 0) when this returns null; may be null
      */
     static @Nullable List<Part> compile(@NotNull String text, @NotNull TagResolver standard, @Nullable TagResolver userTags, @NotNull ModifierSet modifiers,
-                                        @NotNull Engine.Slots slots, @NotNull Set<Integer> unclaimed, boolean discover,
+                                        @NotNull Engine.Slots slots, @NotNull SlotSet unclaimed, boolean discover,
                                         @Nullable String @Nullable [] reason) {
         NativeCompiler compiler = new NativeCompiler(standard, userTags, modifiers, slots, unclaimed, discover);
         try {
