@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+- `Placeholder.parse(message, viewer, ModifierSet)`: reads modifiers with a set, so `parse` can give the text a
+  `MiniMessageFlow` renders (its own modifiers, its number style). `parse(message)` and `parse(message, viewer)` use
+  the shared modifiers in the `AUTO` style, as before, and now say so.
+- `Placeholder.toString()` lists the keys and the kind of each value (`Placeholder{name=text, rank=viewer}`), never
+  the values, so a log does not show a player's data.
+- `Placeholder.of(...)` refuses a null key when it is given (`NullPointerException`), as the builder does; it failed
+  at the next lookup, during a render.
+- A `Placeholder` of more than 8 values holds an immutable copy of its map: one handed to another thread without a
+  lock reads every value.
+- In `parse`, a value that throws is asked once, not at each of its tokens.
+- `isViewerDependent` no longer wraps text values to read them.
+- The class documentation's `Placeholder.of("time", ...)` example compiles.
+
 ## 1.2.1
 
 - A value in a tag argument without quotes is one argument: a `:` in it no longer starts another.

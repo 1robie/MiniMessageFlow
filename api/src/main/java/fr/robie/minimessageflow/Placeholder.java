@@ -9,7 +9,6 @@ import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.function.Function;
@@ -36,7 +35,7 @@ import java.util.function.Supplier;
  * Placeholder p1 = Placeholder.of("name", "John");
  *
  * // Dynamic placeholder with supplier
- * Placeholder p2 = Placeholder.of("time", () -> System.currentTimeMillis());
+ * Placeholder p2 = Placeholder.of("time", () -> String.valueOf(System.currentTimeMillis()));
  *
  * // Viewer-specific placeholder with function
  * Placeholder p3 = Placeholder.of("name", viewer -> viewer.get(Identity.NAME).orElse(""));
@@ -86,7 +85,7 @@ public final class Placeholder {
     }
 
     private static @NotNull Placeholder one(@NotNull String key, @NotNull Object value, boolean viewer) {
-        return new Placeholder(new Object[]{key, value}, 1, null, viewer);
+        return new Placeholder(new Object[]{java.util.Objects.requireNonNull(key, "key cannot be null"), value}, 1, null, viewer);
     }
 
     /**
@@ -165,20 +164,46 @@ public final class Placeholder {
     }
 
 
+    /**
+     * Replaces the {@code %key%} placeholders of a message with their values as text, with the shared modifiers of
+     * {@link PlaceholderModifiers} in the {@link NumberStyle#AUTO} style. To read modifiers as a
+     * {@code MiniMessageFlow} reads them (its own, its number style), use {@link #parse(String, Pointered, ModifierSet)}.
+     *
+     * @param message the message to parse (may be null)
+     * @return the parsed message with replacements, or null if input is null
+     */
     @Contract("null -> null; !null -> _")
     public String parse(@Nullable String message) {
-        return this.parse(message, null);
+        return this.parse(message, null, ModifierSet.shared());
     }
 
     /**
-     * Parses the message by replacing placeholders with their evaluated values.
+     * Replaces the {@code %key%} placeholders of a message with their values as text, with the shared modifiers of
+     * {@link PlaceholderModifiers} in the {@link NumberStyle#AUTO} style.
      *
      * @param message the message to parse (may be null)
      * @param viewer  the viewer for viewer-specific placeholders (may be null)
      * @return the parsed message with replacements, or null if input is null
+     * @see #parse(String, Pointered, ModifierSet)
      */
     @Contract("null, _ -> null; !null, _ -> _")
     public String parse(@Nullable String message, @Nullable Pointered viewer) {
+        return this.parse(message, viewer, ModifierSet.shared());
+    }
+
+    /**
+     * Replaces the {@code %key%} placeholders of a message with their values as text, reading modifiers with a
+     * {@link ModifierSet}: with the one a {@code MiniMessageFlow} was built with, modifiers give the same text as in
+     * its renders.
+     *
+     * @param message   the message to parse (may be null)
+     * @param viewer    the viewer for viewer-specific placeholders (may be null)
+     * @param modifiers the modifiers, and the number style of the number modifiers
+     * @return the parsed message with replacements, or null if input is null
+     */
+    @Contract("null, _, _ -> null; !null, _, _ -> _")
+    public String parse(@Nullable String message, @Nullable Pointered viewer, @NotNull ModifierSet modifiers) {
+        java.util.Objects.requireNonNull(modifiers, "modifiers cannot be null");
         if (message == null) {
             return null;
         }
@@ -186,7 +211,7 @@ public final class Placeholder {
             return message;
         }
 
-        // Only the keys found in the message are evaluated, each once.
+        // Only the keys found in the message are evaluated, each once: a value that fails is not asked again.
         Map<String, String> evaluated = new HashMap<>(4);
         Function<String, String> lookup = key -> {
             Object raw = this.raw(key);
@@ -196,16 +221,19 @@ public final class Placeholder {
             if (raw instanceof String text) {
                 return text;
             }
-            PlaceholderValue value = (PlaceholderValue) raw;
-            return evaluated.computeIfAbsent(key, k -> {
-                try {
-                    return value.evaluate(viewer);
-                } catch (Exception e) {
-                    return null;
-                }
-            });
+            if (evaluated.containsKey(key)) {
+                return evaluated.get(key);
+            }
+            String text;
+            try {
+                text = ((PlaceholderValue) raw).evaluate(viewer);
+            } catch (Exception e) {
+                text = null; // the token is kept as written
+            }
+            evaluated.put(key, text);
+            return text;
         };
-        return PlaceholderScanner.replace(message, (key, start) -> PlaceholderModifiers.resolve(key, lookup));
+        return PlaceholderScanner.replace(message, (key, start) -> modifiers.resolve(key, lookup));
     }
 
     /**
@@ -217,11 +245,43 @@ public final class Placeholder {
     public boolean isViewerDependent(@Nullable String text) {
         return this.hasViewerValues && text != null
                 && PlaceholderScanner.anyKey(text, key -> {
-            String base = PlaceholderModifiers.baseKey(key, k -> this.get(k) != null);
-            return base != null && this.get(base).needsViewer();
+            String base = PlaceholderModifiers.baseKey(key, k -> this.raw(k) != null);
+            // A text value (a String) never needs the viewer: read as it is kept, nothing is wrapped.
+            return base != null && this.raw(base) instanceof PlaceholderValue value && value.needsViewer();
         });
     }
 
+
+    /**
+     * The keys and the kind of each value, never the values themselves (a log does not show a player's data):
+     * {@code Placeholder{name=text, time=dynamic, rank=viewer, item=component}}.
+     */
+    @Override
+    public String toString() {
+        StringBuilder out = new StringBuilder("Placeholder{");
+        int start = out.length();
+        this.forEach((key, value) -> {
+            if (out.length() > start) {
+                out.append(", ");
+            }
+            out.append(key).append('=').append(kind(value));
+        });
+        return out.append('}').toString();
+    }
+
+    private static @NotNull String kind(@NotNull Object value) {
+        if (value instanceof String) {
+            return "text";
+        }
+        return switch ((PlaceholderValue) value) {
+            case PlaceholderValue.StaticValue ignored -> "text";
+            case PlaceholderValue.DynamicValue ignored -> "dynamic";
+            case PlaceholderValue.ViewerValue ignored -> "viewer";
+            case PlaceholderValue.ComponentValue ignored -> "component";
+            case PlaceholderValue.DynamicComponentValue ignored -> "dynamic component";
+            case PlaceholderValue.ViewerComponentValue ignored -> "viewer component";
+        };
+    }
 
     /**
      * Gets an empty Placeholder (no replacements).
@@ -312,6 +372,8 @@ public final class Placeholder {
      */
     public static @NotNull Placeholder of(@NotNull String key1, String value1,
                                           @NotNull String key2, String value2) {
+        java.util.Objects.requireNonNull(key1, "key cannot be null");
+        java.util.Objects.requireNonNull(key2, "key cannot be null");
         String second = value2 == null ? "" : value2;
         if (key1.equals(key2)) {
             return one(key2, second, false); // the last one wins, as in a builder
@@ -360,23 +422,20 @@ public final class Placeholder {
          */
         private boolean viewerValues;
         /**
-         * Whether the arrays or the map belong to a built Placeholder: they are copied before the next change.
+         * Whether the array belongs to a built Placeholder: it is copied before the next change. (A built Placeholder
+         * gets its own copy of the map.)
          */
         private boolean built;
 
         /**
          * Sets a key's value, replacing the one it had.
-         */
-        /**
+         *
          * @param value a {@code String} (text) or a {@code PlaceholderValue}
          */
         private void put(@NotNull String key, @NotNull Object value) {
             java.util.Objects.requireNonNull(key, "key cannot be null");
             if (this.built) {
                 this.entries = this.entries.clone();
-                if (this.map != null) {
-                    this.map = new HashMap<>(this.map);
-                }
                 this.built = false;
             }
             if (this.map != null) {
@@ -525,10 +584,15 @@ public final class Placeholder {
             if (this.size == 0 && this.map == null) {
                 return EMPTY;
             }
-            // The builder's own arrays or map, read-only from now on: the builder copies them if it is used again.
+            if (this.map != null) {
+                // An immutable copy: its fields are final, so a Placeholder handed to another thread without a lock
+                // still reads every value (the field that holds it is not final: it is also the lazy getMap()).
+                return new Placeholder(null, 0, Map.copyOf(this.map), this.viewerValues);
+            }
+            // The builder's own array, read-only from now on: the builder copies it if it is used again. The field
+            // that holds it is final.
             this.built = true;
-            return this.map != null ? new Placeholder(null, 0, Collections.unmodifiableMap(this.map), this.viewerValues)
-                    : new Placeholder(this.entries, this.size, null, this.viewerValues);
+            return new Placeholder(this.entries, this.size, null, this.viewerValues);
         }
     }
 }
