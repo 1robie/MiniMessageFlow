@@ -22,11 +22,13 @@ import java.util.logging.Level;
  * <ul>
  *   <li>PlaceholderAPI when it is installed ({@link PlaceholderApi}): {@code %vault_eco_balance%},
  *   {@code <papi:vault_eco_balance>};</li>
+ *   <li>MiniPlaceholders when it is installed ({@link MiniPlaceholdersBridge}): {@code <player_name>};</li>
  *   <li>the viewer's and the server's placeholders ({@link PaperPlaceholders}): {@code %viewer_name%},
  *   {@code <server_online>};</li>
  *   <li>an error handler that logs to the plugin's logger, once per placeholder.</li>
  * </ul>
- * What {@link Builder#configure} adds comes first: your resolvers and value tags are asked before the built-in ones.
+ * What {@link Builder#configure} adds comes first: your resolvers and value tags are asked before the others; then
+ * PlaceholderAPI, then MiniPlaceholders (the expansions a server installed), then the built-in placeholders.
  */
 public final class PaperFlow {
 
@@ -42,6 +44,7 @@ public final class PaperFlow {
         private final MiniMessageFlow.Builder flow = MiniMessageFlow.builder();
         private @Nullable PlaceholderApi.Builder placeholderApi = PlaceholderApi.builder();
         private @Nullable PaperPlaceholders.Builder placeholders = PaperPlaceholders.builder();
+        private boolean miniPlaceholders = true;
         private boolean logErrors = true;
 
         private Builder(@NotNull Plugin plugin) {
@@ -69,6 +72,14 @@ public final class PaperFlow {
          */
         public @NotNull Builder placeholderApi(@NotNull PlaceholderApi.Builder placeholderApi) {
             this.placeholderApi = Objects.requireNonNull(placeholderApi, "placeholderApi cannot be null");
+            return this;
+        }
+
+        /**
+         * Whether MiniPlaceholders is used when it is installed. True by default.
+         */
+        public @NotNull Builder miniPlaceholders(boolean enabled) {
+            this.miniPlaceholders = enabled;
             return this;
         }
 
@@ -110,6 +121,9 @@ public final class PaperFlow {
             }
             if (this.placeholderApi != null) {
                 this.placeholderApi.applyTo(this.flow, this.plugin);
+            }
+            if (this.miniPlaceholders) {
+                MiniPlaceholdersBridge.applyTo(this.flow);
             }
             if (this.placeholders != null) {
                 this.placeholders.applyTo(this.flow);

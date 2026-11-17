@@ -2,12 +2,16 @@ package fr.robie.minimessageflow.compat.adventure4;
 
 import fr.robie.minimessageflow.core.AdventureBridge;
 import fr.robie.minimessageflow.core.Classes;
+import net.kyori.adventure.pointer.Pointered;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.Style;
 import net.kyori.adventure.text.format.TextColor;
+import net.kyori.adventure.text.minimessage.tag.resolver.TagResolver;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+
+import java.util.List;
 
 /**
  * Adventure 4.17 - 4.x. Features added during 4.x are detected once, here.
@@ -109,5 +113,11 @@ public final class Adventure4Bridge implements AdventureBridge {
     @Override
     public @Nullable Style clickCustom(@NotNull String key, @Nullable String nbt) {
         return null;
+    }
+
+    @Override
+    public @Nullable Component insertedTag(@NotNull TagResolver resolver, @NotNull String name,
+                                           @NotNull List<String> arguments, @Nullable Pointered target) {
+        return DirectTags.inserted(resolver, name, arguments, target);
     }
 }

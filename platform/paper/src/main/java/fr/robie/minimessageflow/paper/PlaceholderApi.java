@@ -8,6 +8,7 @@ import fr.robie.minimessageflow.core.BoundedCache;
 import net.kyori.adventure.pointer.Pointered;
 import org.bukkit.Bukkit;
 import org.bukkit.OfflinePlayer;
+import org.bukkit.entity.Player;
 import org.bukkit.plugin.Plugin;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -16,7 +17,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.function.BooleanSupplier;
+import java.util.function.Predicate;
 import java.util.logging.Logger;
 
 /**
@@ -98,10 +99,11 @@ public final class PlaceholderApi {
         }
 
         /**
-         * Whether PlaceholderAPI is only asked on the server's main thread. Many expansions read the world or call
-         * other plugins, which is not thread-safe. With true, a render on another thread (an async chat event, a
-         * task) shows the placeholder as written, and the plugin's logger warns once. False by default: PlaceholderAPI
-         * is asked on any thread, as most plugins do.
+         * Whether PlaceholderAPI is only asked on the thread that owns the player: the main thread on Paper, the
+         * player's region on Folia (the main thread for a render without a player). Many expansions read the world or
+         * call other plugins, which is not thread-safe. With true, a render on another thread (an async chat event, a
+         * task) shows the placeholder as written, and the plugin's logger warns once. False by default:
+         * PlaceholderAPI is asked on any thread, as most plugins do.
          */
         public @NotNull Builder mainThreadOnly(boolean mainThreadOnly) {
             this.mainThreadOnly = mainThreadOnly;
@@ -119,16 +121,17 @@ public final class PlaceholderApi {
             if (!isInstalled()) {
                 return false;
             }
-            this.applyTo(flow, new ClipHook(), Bukkit::isPrimaryThread, plugin.getLogger());
+            this.applyTo(flow, new ClipHook(), player -> player != null ? Regions.ownsPlayer(player) : Bukkit.isPrimaryThread(),
+                    plugin.getLogger());
             return true;
         }
 
         /**
          * Adds PlaceholderAPI with a given hook (for tests).
          */
-        void applyTo(@NotNull MiniMessageFlow.Builder flow, @NotNull Hook hook, @NotNull BooleanSupplier mainThread,
+        void applyTo(@NotNull MiniMessageFlow.Builder flow, @NotNull Hook hook, @NotNull Predicate<@Nullable Player> owner,
                      @NotNull Logger logger) {
-            Asker asker = new Asker(hook, this.mainThreadOnly ? mainThread : null, logger);
+            Asker asker = new Asker(hook, this.mainThreadOnly ? owner : null, logger);
             flow.valueTag(this.tagName, (arguments, viewer) -> asker.prefixed(arguments, viewer));
             if (this.keys == Keys.ALL) {
                 flow.resolver(asker);
@@ -141,7 +144,10 @@ public final class PlaceholderApi {
      */
     private static final class Asker implements Resolver {
         private final Hook hook;
-        private final @Nullable BooleanSupplier mainThread;
+        /**
+         * Whether this thread owns a player (null for none), when PlaceholderAPI is only asked there.
+         */
+        private final @Nullable Predicate<@Nullable Player> owner;
         private final Logger logger;
         private final AtomicBoolean warned = new AtomicBoolean();
         /**
@@ -155,9 +161,9 @@ public final class PlaceholderApi {
          */
         private final BoundedCache<String, String> tokens = new BoundedCache<>(256);
 
-        Asker(@NotNull Hook hook, @Nullable BooleanSupplier mainThread, @NotNull Logger logger) {
+        Asker(@NotNull Hook hook, @Nullable Predicate<@Nullable Player> owner, @NotNull Logger logger) {
             this.hook = hook;
-            this.mainThread = mainThread;
+            this.owner = owner;
             this.logger = logger;
         }
 
@@ -215,15 +221,17 @@ public final class PlaceholderApi {
         }
 
         private @Nullable String ask(@NotNull String placeholder, @Nullable Pointered viewer) {
-            if (this.mainThread != null && !this.mainThread.getAsBoolean()) {
+            Player player = Viewers.player(viewer);
+            if (this.owner != null && !this.owner.test(player)) {
                 if (this.warned.compareAndSet(false, true)) {
                     this.logger.warning("A message with a PlaceholderAPI placeholder (%" + placeholder
-                            + "%) was rendered off the main thread: shown as written (mainThreadOnly). Warned once.");
+                            + "%) was rendered off the thread that owns the player: shown as written (mainThreadOnly)."
+                            + " Warned once.");
                 }
                 return null;
             }
             String token = this.tokens.get(placeholder, p -> "%" + p + "%");
-            String result = this.hook.setPlaceholders(Viewers.player(viewer), token);
+            String result = this.hook.setPlaceholders(player, token);
             // PlaceholderAPI gives a placeholder it does not know back as it is.
             return token.equals(result) ? null : result;
         }

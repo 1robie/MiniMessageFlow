@@ -9,6 +9,15 @@
   messages of a YAML file and reloads them. Compiled against Paper 1.20.6; CI compiles and tests it against 1.21.11
   and 26.3 too. With a new player at each render (`PaperBenchmark`, players faked): `<papi:x:comma>` 75 ns and
   232 B (a plain resolver: 57 ns, 232 B), `<viewer_name>` with `<server_online>` 84 ns and 345 B (63 ns, 263 B).
+- `paper-minimessageflow`, more: `PaperTranslations` (only when loaded) registers `lang/*.yml` in Adventure's
+  `GlobalTranslator`, a file per locale, with `reload()` and `close()`; MiniPlaceholders 2.x and 3.x, found when the
+  server runs (`<player_name>`, `%player_name%`), asked directly on Adventure 4 (47 ns and 217 B per value, a plain
+  resolver 39 ns and 184 B; the first version parsed each: 639 ns and 2,185 B, still the case on Paper 26);
+  `<viewer_item>`, `<viewer_item_display>`, `<viewer_target>`, `<viewer_vehicle>` (an item's name through
+  `effectiveName()` from Paper 1.21, its meta on 1.20.6); Folia: a placeholder reading the player's world is only read
+  on the player's region thread, and `mainThreadOnly` means the thread that owns the player. Measured: the region
+  check costs nothing on Paper (`<viewer_name>` with `<server_online>` still 83 ns and 345 B).
+- `AdventureBridge.insertedTag`: a tag resolver asked directly, without a parse, on Adventure 4.
 - Changed: the JitPack names. The library is `com.github.1robie.MiniMessageFlow:MiniMessageFlow:<version>`, the Paper
   integration `com.github.1robie.MiniMessageFlow:paper-minimessageflow:<version>`. The old
   `com.github.1robie:MiniMessageFlow` still works, but brings both: switch to the new name.

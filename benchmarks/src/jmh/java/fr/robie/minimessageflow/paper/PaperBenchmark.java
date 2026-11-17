@@ -59,6 +59,8 @@ public class PaperBenchmark {
     private final Template papiTag;
     private final Template papiBare;
     private final Template papiResolver;
+    private final Template miniPlaceholders;
+    private final Template miniPlaceholdersAsResolver;
 
     public PaperBenchmark() {
         for (int i = 0; i < PLAYERS; i++) {
@@ -71,7 +73,7 @@ public class PaperBenchmark {
         }
         MiniMessageFlow.Builder paper = MiniMessageFlow.builder();
         PaperPlaceholders.builder().applyTo(paper, () -> this.server);
-        PlaceholderApi.builder().applyTo(paper, new Api(), () -> true, Logger.getLogger("bench"));
+        PlaceholderApi.builder().applyTo(paper, new Api(), player -> true, Logger.getLogger("bench"));
         MiniMessageFlow paperFlow = paper.build();
         MiniMessageFlow plain = MiniMessageFlow.builder()
                 .resolver((key, viewer) -> switch (key) {
@@ -85,6 +87,13 @@ public class PaperBenchmark {
         this.papiTag = paperFlow.compile("<gray>Balance: <gold><papi:vault_eco_balance:comma>");
         this.papiBare = paperFlow.compile("<gray>Balance: <gold>%vault_eco_balance.comma%");
         this.papiResolver = plain.compile("<gray>Balance: <gold>%balance.comma%");
+        // MiniPlaceholders 3.x's way: a resolver whose tag reads the parse's target.
+        net.kyori.adventure.text.minimessage.tag.resolver.TagResolver tags = net.kyori.adventure.text.minimessage.tag.resolver.TagResolver.resolver(
+                "player_name", (arguments, context) -> net.kyori.adventure.text.minimessage.tag.Tag.selfClosingInserting(
+                        Component.text(((Player) context.target()).getName())));
+        MiniMessageFlow mini = MiniMessageFlow.builder().resolver(new MiniPlaceholdersBridge.Placeholders(viewer -> tags)).build();
+        this.miniPlaceholders = mini.compile("<gray>Hi <white><player_name>");
+        this.miniPlaceholdersAsResolver = plain.compile("<gray>Hi <white><name>");
     }
 
     private Player next() {
@@ -109,6 +118,16 @@ public class PaperBenchmark {
     @Benchmark
     public Component papiBare() {
         return this.papiBare.render(Placeholder.empty(), this.next());
+    }
+
+    @Benchmark
+    public Component miniPlaceholders() {
+        return this.miniPlaceholders.render(Placeholder.empty(), this.next());
+    }
+
+    @Benchmark
+    public Component miniPlaceholdersAsResolver() {
+        return this.miniPlaceholdersAsResolver.render(Placeholder.empty(), this.next());
     }
 
     @Benchmark

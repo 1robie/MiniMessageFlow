@@ -10,6 +10,8 @@ jmh = "1.37"
 # CI also compiles it against newer ones (-PpaperVersion).
 paper = "1.20.6-R0.1-SNAPSHOT"
 placeholderapi = "2.12.3"
+# Only in platform/paper's tests: the bridge finds MiniPlaceholders' API when the server runs.
+miniplaceholders = "3.1.0"
 
 [libraries]
 adventure-api = { module = "net.kyori:adventure-api", version.ref = "adventure4" }
@@ -21,6 +23,7 @@ adventure5-api = { module = "net.kyori:adventure-api", version.ref = "adventure5
 annotations = { module = "org.jetbrains:annotations", version.ref = "annotations" }
 paper-api = { module = "io.papermc.paper:paper-api", version.ref = "paper" }
 placeholderapi = { module = "me.clip:placeholderapi", version.ref = "placeholderapi" }
+miniplaceholders-api = { module = "io.github.miniplaceholders:miniplaceholders-api", version.ref = "miniplaceholders" }
 junit-bom = { module = "org.junit:junit-bom", version.ref = "junit" }
 junit-jupiter = { module = "org.junit.jupiter:junit-jupiter" }
 junit-launcher = { module = "org.junit.platform:junit-platform-launcher" }

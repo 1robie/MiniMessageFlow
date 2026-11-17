@@ -32,6 +32,12 @@ configurations.matching { it.name.startsWith("test") }.configureEach {
     }
 }
 
+// The tests check which version bridge the Paper they run on gets.
+tasks.withType<Test>().configureEach {
+    inputs.property("paperVersion", paperVersion)
+    systemProperty("minimessageflow.test.paperVersion", paperVersion)
+}
+
 dependencies {
     api(project(":minimessageflow"))
 
@@ -40,6 +46,7 @@ dependencies {
 
     testImplementation("io.papermc.paper:paper-api:$paperVersion")
     testImplementation(libs.placeholderapi) { isTransitive = false }
+    testImplementation(libs.miniplaceholders.api) { isTransitive = false }
 }
 
 publishing {

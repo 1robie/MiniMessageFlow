@@ -63,7 +63,12 @@ final class Fakes {
                 "getWorld", args -> world,
                 "getPing", args -> 42,
                 "locale", args -> Locale.FRANCE,
-                "getLocation", args -> new Location(world, 10.7, 64.2, -3.5)));
+                "getLocation", args -> new Location(world, 10.7, 64.2, -3.5),
+                // As a Paper player's: its name and UUID as Adventure pointers.
+                "pointers", args -> net.kyori.adventure.pointer.Pointers.builder()
+                        .withStatic(net.kyori.adventure.identity.Identity.NAME, name)
+                        .withStatic(net.kyori.adventure.identity.Identity.UUID, uuid)
+                        .build()));
         return player;
     }
 

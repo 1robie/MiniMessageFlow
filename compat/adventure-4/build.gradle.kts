@@ -11,6 +11,7 @@ adventure {
 dependencies {
     compileOnly(project(":core"))
     compileOnly(libs.adventure.api)
+    compileOnly(libs.adventure.minimessage)
 
     testImplementation(project(":core"))
     testImplementation(libs.adventure.api)

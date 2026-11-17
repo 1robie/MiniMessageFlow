@@ -8,7 +8,10 @@ import net.kyori.adventure.text.ComponentLike;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.Server;
+import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
+import org.bukkit.inventory.EquipmentSlot;
+import org.bukkit.inventory.ItemStack;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -28,6 +31,13 @@ import java.util.function.Function;
  *   <tr><td>{@code viewer_name}, {@code viewer_uuid}, {@code viewer_world}, {@code viewer_ping}, {@code viewer_locale},
  *   {@code viewer_x}, {@code viewer_y}, {@code viewer_z}</td><td>text</td></tr>
  *   <tr><td>{@code viewer_displayname}</td><td>a component, with its own style</td></tr>
+ *   <tr><td>{@code viewer_item}, {@code viewer_item:offhand} (or {@code head}, {@code chest}, {@code legs},
+ *   {@code feet})</td><td>the item's name as a player sees it, a component</td></tr>
+ *   <tr><td>{@code viewer_item_display}, with the same slots</td><td>the item as chat shows it: its name in brackets,
+ *   its tooltip on hover</td></tr>
+ *   <tr><td>{@code viewer_target}, {@code viewer_target:20}</td><td>the name of the entity the viewer looks at, within
+ *   10 blocks (or the distance given, at most 100); shown as written when there is none</td></tr>
+ *   <tr><td>{@code viewer_vehicle}</td><td>the name of the entity the viewer rides</td></tr>
  *   <tr><td>{@code server_online}, {@code server_max}, {@code server_tps}, {@code server_mspt}</td><td>text</td></tr>
  * </table>
  * Add your own the same way, with or without arguments:
@@ -41,6 +51,11 @@ import java.util.function.Function;
  * A value is a component when it is one ({@code ComponentLike}), else plain text ({@code String.valueOf}): never read
  * as MiniMessage or colour codes. Without a viewer, or when the viewer is not an online player, a player placeholder
  * is shown as written; so is any placeholder whose value is null.
+ * <p>
+ * {@code viewer_item...}, {@code viewer_target}, {@code viewer_vehicle}, {@code viewer_world} and the location read
+ * the world: render a message with them where the server allows it. On Paper they are read on any thread, as a
+ * plugin's own code would; on Folia only on the thread of the player's region: from another, the placeholder is
+ * shown as written and the error handler is told.
  */
 public final class PaperPlaceholders {
 
@@ -74,12 +89,22 @@ public final class PaperPlaceholders {
             this.player("name", Player::getName);
             this.player("displayname", Player::displayName);
             this.player("uuid", player -> player.getUniqueId().toString());
-            this.player("world", player -> player.getWorld().getName());
+            this.player("world", world(player -> player.getWorld().getName()));
             this.player("ping", Player::getPing);
             this.player("locale", player -> player.locale().toString());
-            this.player("x", player -> block(player).getBlockX());
-            this.player("y", player -> block(player).getBlockY());
-            this.player("z", player -> block(player).getBlockZ());
+            this.player("x", world(player -> block(player).getBlockX()));
+            this.player("y", world(player -> block(player).getBlockY()));
+            this.player("z", world(player -> block(player).getBlockZ()));
+            this.playerWithArguments("item", world((player, arguments) -> PaperBridge.CURRENT.itemName(item(player, arguments))));
+            this.playerWithArguments("item_display", world((player, arguments) -> item(player, arguments).displayName()));
+            this.playerWithArguments("target", world((player, arguments) -> {
+                Entity target = player.getTargetEntity(distance(arguments));
+                return target == null ? null : target.name();
+            }));
+            this.player("vehicle", world(player -> {
+                Entity vehicle = player.getVehicle();
+                return vehicle == null ? null : vehicle.name();
+            }));
             this.server("online", server -> server.getOnlinePlayers().size());
             this.server("max", Server::getMaxPlayers);
             // Paper: the last minute's ticks per second, at most 20; the average milliseconds a tick takes.
@@ -88,8 +113,61 @@ public final class PaperPlaceholders {
             return this;
         }
 
+        /**
+         * A value read from the player's world: on Folia, only from the thread of the player's region (from another,
+         * the placeholder fails, so it is shown as written and the error handler is told once).
+         */
+        private static @NotNull Function<Player, ?> world(@NotNull Function<Player, ?> value) {
+            return player -> {
+                checkRegion(player);
+                return value.apply(player);
+            };
+        }
+
+        private static @NotNull BiFunction<Player, List<String>, ?> world(@NotNull BiFunction<Player, List<String>, ?> value) {
+            return (player, arguments) -> {
+                checkRegion(player);
+                return value.apply(player, arguments);
+            };
+        }
+
+        private static void checkRegion(@NotNull Player player) {
+            if (!Regions.mayReadWorld(player)) {
+                throw new IllegalStateException("Folia: a placeholder reading " + player.getName()
+                        + "'s world was rendered off the player's region thread; shown as written");
+            }
+        }
+
         private static @NotNull Location block(@NotNull Player player) {
             return player.getLocation();
+        }
+
+        /**
+         * The item in a slot: the main hand without an argument, else {@code offhand}, {@code head}, {@code chest},
+         * {@code legs} or {@code feet}.
+         */
+        private static @NotNull ItemStack item(@NotNull Player player, @NotNull List<String> arguments) {
+            EquipmentSlot slot = arguments.isEmpty() ? EquipmentSlot.HAND : switch (arguments.getFirst().toLowerCase(Locale.ROOT)) {
+                case "hand", "mainhand" -> EquipmentSlot.HAND;
+                case "offhand" -> EquipmentSlot.OFF_HAND;
+                case "head" -> EquipmentSlot.HEAD;
+                case "chest" -> EquipmentSlot.CHEST;
+                case "legs" -> EquipmentSlot.LEGS;
+                case "feet" -> EquipmentSlot.FEET;
+                default -> throw new IllegalArgumentException("no slot '" + arguments.getFirst()
+                        + "': hand, offhand, head, chest, legs or feet");
+            };
+            return player.getInventory().getItem(slot);
+        }
+
+        /**
+         * How far {@code viewer_target} looks: 10 blocks, or the argument, from 1 to 100.
+         */
+        private static int distance(@NotNull List<String> arguments) {
+            if (arguments.isEmpty()) {
+                return 10;
+            }
+            return Math.max(1, Math.min(100, Integer.parseInt(arguments.getFirst())));
         }
 
         private static @NotNull String decimal(double value) {

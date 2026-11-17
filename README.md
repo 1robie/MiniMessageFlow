@@ -75,13 +75,28 @@ messages.reload();                                                             /
   `viewer_displayname` (a component), `viewer_uuid`, `viewer_world`, `viewer_ping`, `viewer_locale`, `viewer_x`,
   `viewer_y`, `viewer_z`, `server_online`, `server_max`, `server_tps`, `server_mspt`. Add yours the same way:
   `.placeholders(PaperPlaceholders.builder().player("level", Player::getLevel))` gives `<viewer_level>`.
+- **MiniPlaceholders**, when it is installed (2.x or 3.x, found when the server runs): its placeholders as written for
+  it (`<player_name>`) and as `%player_name%`, with modifiers, the viewer as the audience.
+- **Items and entities** as components: `<viewer_item>` (the name a player sees; `<viewer_item:offhand>`, `head`,
+  `chest`, `legs`, `feet`), `<viewer_item_display>` (as chat shows it, with its tooltip), `<viewer_target>` (what
+  the viewer looks at; `<viewer_target:20>` blocks), `<viewer_vehicle>`.
 - **Errors** (a placeholder that throws) go to the plugin's logger, once per placeholder.
-- Each part can be turned off: `.placeholderApi(false)`, `.placeholders(false)`, `.logErrors(false)`.
+- Each part can be turned off: `.placeholderApi(false)`, `.miniPlaceholders(false)`, `.placeholders(false)`,
+  `.logErrors(false)`.
+- **Translations**, only when a plugin loads them: `PaperTranslations.builder(plugin, text).folder("lang")
+  .defaults("en_US.yml").defaultLocale(Locale.US).load()` registers `lang/en_US.yml`, `lang/fr_FR.yml`... in
+  Adventure's `GlobalTranslator`, so `Component.translatable("shop.bought", item)` shows in each player's language.
+  `reload()`, and `close()` in `onDisable`.
+- **Folia**: nothing is scheduled. A placeholder that reads the player's world (location, items, target) is only read
+  on the thread of the player's region; from another, it is shown as written and logged.
+  `PlaceholderApi.builder().mainThreadOnly(true)` asks PlaceholderAPI only on the thread that owns the player.
 
 They are value tags: a message using them keeps the fast path and asks them once per render. With a new player at
 each render (`PaperBenchmark`, players faked, so compare the pairs): `<papi:vault_eco_balance:comma>` 75 ns and
 232 B against 57 ns and 232 B for a plain resolver giving the same text; `<viewer_name>` and `<server_online>` 84 ns
-and 345 B against 63 ns and 263 B (each value is a component of plain text, never read as tags).
+and 345 B against 63 ns and 263 B (each value is a component of plain text, never read as tags); a MiniPlaceholders
+`<player_name>` 47 ns and 217 B against 39 ns and 184 B. On Paper 26 a MiniPlaceholders value is parsed (about 640 ns):
+Adventure 5 lets only MiniMessage make the context its tags are asked with.
 
 ## Use
 

@@ -72,7 +72,7 @@ class PlaceholderApiTest {
 
     private MiniMessageFlow flow(PlaceholderApi.Builder builder, boolean mainThread) {
         MiniMessageFlow.Builder flow = MiniMessageFlow.builder();
-        builder.applyTo(flow, this.api, () -> mainThread, this.logger);
+        builder.applyTo(flow, this.api, player -> mainThread, this.logger);
         return flow.build();
     }
 

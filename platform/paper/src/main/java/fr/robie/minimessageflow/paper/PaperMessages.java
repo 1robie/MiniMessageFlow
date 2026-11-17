@@ -5,18 +5,12 @@ import fr.robie.minimessageflow.Placeholder;
 import fr.robie.minimessageflow.Template;
 import net.kyori.adventure.pointer.Pointered;
 import net.kyori.adventure.text.Component;
-import org.bukkit.configuration.ConfigurationSection;
-import org.bukkit.configuration.InvalidConfigurationException;
-import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.plugin.Plugin;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.io.File;
-import java.io.IOException;
 import java.util.Collections;
-import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -96,18 +90,13 @@ public final class PaperMessages {
         if (!this.file.exists() && this.plugin != null && this.plugin.getResource(this.resource) != null) {
             this.plugin.saveResource(this.resource, false);
         }
-        YamlConfiguration yaml = new YamlConfiguration();
+        Map<String, String> texts;
         if (this.file.exists()) {
-            try {
-                yaml.load(this.file);
-            } catch (IOException | InvalidConfigurationException e) {
-                throw new IllegalStateException("can't read " + this.file + ": " + e.getMessage(), e);
-            }
+            texts = YamlMessages.read(this.file);
         } else {
             this.logger.warning(this.file + " does not exist: no message loaded from it");
+            texts = Map.of();
         }
-        Map<String, String> texts = new LinkedHashMap<>();
-        collect(yaml, texts);
         Map<String, Template> compiled = this.flow.compileAll(texts);
         compiled.forEach((key, template) -> {
             String reason = template.fallbackReason();
@@ -117,20 +106,6 @@ public final class PaperMessages {
         });
         this.templates = compiled;
         this.warnedMissing.clear();
-    }
-
-    /**
-     * Every message of a section and its subsections, by full key ({@code shop.bought}).
-     */
-    private static void collect(@NotNull ConfigurationSection section, @NotNull Map<String, String> texts) {
-        for (String key : section.getKeys(true)) {
-            if (section.isString(key)) {
-                texts.put(key, Objects.requireNonNull(section.getString(key)));
-            } else if (section.isList(key)) {
-                List<String> lines = section.getStringList(key);
-                texts.put(key, String.join("\n", lines));
-            }
-        }
     }
 
     /**

@@ -1,11 +1,15 @@
 package fr.robie.minimessageflow.core;
 
+import net.kyori.adventure.pointer.Pointered;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.Style;
 import net.kyori.adventure.text.format.TextColor;
+import net.kyori.adventure.text.minimessage.tag.resolver.TagResolver;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+
+import java.util.List;
 
 /**
  * Everything of Adventure that differs between the supported versions. {@code core} never calls such an API
@@ -77,6 +81,19 @@ public interface AdventureBridge {
      * key is invalid.
      */
     @Nullable Style clickCustom(@NotNull String key, @Nullable String nbt);
+
+    /**
+     * Asks a tag resolver for a tag directly, as MiniMessage asks it while parsing, without a parse: the component an
+     * inserting tag gives ({@code Tag.selfClosingInserting(...)}, what a placeholder plugin's tag is). Null when the
+     * tag is another kind, the resolver gives none, or this bridge can't ask directly: Adventure 5's parsing context
+     * is sealed, so only MiniMessage makes one. The caller then parses the tag.
+     *
+     * @param target the parse's target (the viewer), may be null
+     */
+    default @Nullable Component insertedTag(@NotNull TagResolver resolver, @NotNull String name,
+                                            @NotNull List<String> arguments, @Nullable Pointered target) {
+        return null;
+    }
 
     /**
      * For logs and errors: {@code "Adventure 4 (shadow colour: no, virtual components: no)"}.
