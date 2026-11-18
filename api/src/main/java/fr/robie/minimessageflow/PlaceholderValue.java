@@ -33,7 +33,7 @@ import java.util.function.Supplier;
  */
 public sealed interface PlaceholderValue permits PlaceholderValue.StaticValue, PlaceholderValue.DynamicValue,
         PlaceholderValue.ViewerValue, PlaceholderValue.ComponentValue, PlaceholderValue.DynamicComponentValue,
-        PlaceholderValue.ViewerComponentValue {
+        PlaceholderValue.ViewerComponentValue, PlaceholderValue.FormattedValue {
 
     /**
      * Evaluates this placeholder value as text. A component value gives its legacy ({@code §}) text, hex colours
@@ -65,10 +65,51 @@ public sealed interface PlaceholderValue permits PlaceholderValue.StaticValue, P
     }
 
     /**
+     * Whether this value is formatted text: read as MiniMessage and legacy codes, as a resolver's text.
+     */
+    default boolean isFormatted() {
+        return false;
+    }
+
+    /**
      * Whether this value depends on the viewer.
      */
     default boolean needsViewer() {
         return false;
+    }
+
+    /**
+     * Formatted text: its tags and colour codes are read, as a resolver's text is. It is read on its own, so its
+     * colours and unclosed tags end with it, and the same text is parsed once (the instance's value cache). With the
+     * {@code raw} modifier ({@code %key.raw%}) it is shown as written. {@link #evaluate} gives the text as written.
+     *
+     * @param text the formatted text (never null)
+     */
+    record FormattedValue(@NotNull String text) implements PlaceholderValue {
+
+        public FormattedValue {
+            Objects.requireNonNull(text, "text cannot be null");
+        }
+
+        @Override
+        public @NotNull String evaluate(@Nullable Pointered viewer) {
+            return this.text;
+        }
+
+        @Override
+        public boolean isFormatted() {
+            return true;
+        }
+    }
+
+    /**
+     * Creates a formatted text value: read as MiniMessage and legacy codes, as a resolver's text.
+     *
+     * @param text the formatted text
+     * @return a new FormattedValue
+     */
+    static @NotNull PlaceholderValue ofFormatted(@NotNull String text) {
+        return new FormattedValue(text);
     }
 
     /**

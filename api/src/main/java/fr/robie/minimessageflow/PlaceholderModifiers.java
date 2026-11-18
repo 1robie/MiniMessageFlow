@@ -96,7 +96,15 @@ public final class PlaceholderModifiers {
      */
     private static final Map<NumberStyle, Map<String, Modifier>> NUMBERS = new java.util.EnumMap<>(NumberStyle.class);
 
+    /**
+     * The modifier that places a value as plain text, never read as tags or colour codes, whatever its source
+     * ({@code %nick.raw%}, {@code <nick:raw>}, {@code %nick.max:16.raw%}). It leaves the text as it is: in a chain it
+     * only has this meaning last, elsewhere it does nothing. Reserved: no modifier can be registered with this name.
+     */
+    public static final String RAW = "raw";
+
     static {
+        MODIFIERS.put(RAW, (v, a) -> v);
         register("upper", (v, a) -> v.toUpperCase(Locale.ROOT));
         register("lower", (v, a) -> v.toLowerCase(Locale.ROOT));
         register("capitalize", (v, a) -> {
@@ -232,7 +240,11 @@ public final class PlaceholderModifiers {
         if (name.isBlank() || name.indexOf('.') >= 0 || name.indexOf(':') >= 0) {
             throw new IllegalArgumentException("name cannot be blank or contain '.' or ':'");
         }
-        return name.toLowerCase(Locale.ROOT);
+        String lower = name.toLowerCase(Locale.ROOT);
+        if (lower.equals(RAW)) {
+            throw new IllegalArgumentException("'" + RAW + "' is a reserved modifier");
+        }
+        return lower;
     }
 
     /**

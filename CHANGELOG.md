@@ -1,6 +1,35 @@
 # Changelog
 
-## 1.3.0
+## Unreleased
+
+- `raw` modifier: `%nick.raw%`, `<nick:raw>`, `<papi:x:raw>`, `%nick.max:16.raw%` place the value as plain text,
+  never read as tags or colour codes, whatever its source (a resolver's text, a value tag, formatted text, a
+  constant); a component gives its plain text. For text a player may have typed, where the plugin can't tell. Read
+  when the message is compiled: a render pays nothing for it. `raw` is reserved: registering a modifier of that name
+  fails. Elsewhere than last in a chain it changes nothing.
+- Formatted values: `Values.setFormatted(key, text)`, `Placeholder.Builder.registerFormatted(key, text)`,
+  `PlaceholderValue.ofFormatted(text)`. Read as a resolver's text (tags and colour codes, on its own: its colours end
+  with it), through the instance's value cache, so the same text is parsed once. A value of the call stays plain text.
+- `Values` layers: `values.child()` reads its own values first, then its parent's (`parent()`, `root()`); one array
+  read per layer. `toPlaceholder()` copies every layer, for another thread.
+- Keys after build: `MiniMessageFlow.key(name)` (and `ValueKeys.add`, `builder.key` after `build()`) declares a key
+  later, thread-safe; `Values` made before grow when it is set. A message compiled before the key reads it by name.
+- Prefix lookups: `values.lookup(prefix, rest -> text)` and `lookupFormatted` give the value of any key starting with
+  the prefix that has no value (`%state_count%`), asked at each render, modifiers applied, through layers.
+- `MiniMessageFlow.compileText(text)` → `TextTemplate`: a command, an amount, a URL with `%key%` placeholders, rendered
+  as a `String` (no tag or colour code read, `<key>` left as text, every value placed as written, modifiers applied).
+  Compiled once, rendered into one builder sized when compiled.
+- `Template.renderLines(...)`: the render split at each `\n` of the text and the values (`<newline>` included), each
+  line keeping the style open where it starts (colour, decorations, font, click, hover, insertion); a hover's text
+  and a translation are not split. Without a break, the render itself in a list of one. For item lore.
+- `Values.rememberRenders(true)`: the values remember the last render of each template, so a render whose values are
+  all the same gives the same component instance again, allocating nothing (measured: under 1 B per render over
+  10,000, a formatted value and a click argument included). The template's own memory is shared by every viewer, and
+  values that differ from one viewer to the next keep replacing it; this one is per `Values` (one per player's open
+  menu). `forgetRenders()` drops it.
+- Fixed: a resolver's text found in the value cache allocated a lambda at each render (16 B).
+- Faster renders with `Values`: a plain value set in the values' own layer is read on a short path. 3 placeholders
+  from `Values` (`ValuesBenchmark.threeValuesRender`): 6.1 ns, 1.3.0 10.6 ns; 0 B.
 
 - New artifact `paper-minimessageflow`, for Paper 1.20.6 to 26: `PaperFlow.builder(plugin)` sets up an instance
   with PlaceholderAPI when it is installed (`<papi:x>`, `%papi:x%`, and `%x%` for a registered expansion's key;

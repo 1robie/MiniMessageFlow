@@ -207,7 +207,8 @@ final class CompiledTemplate implements Template {
         // While every value is the last render's, nothing is allocated: the arrays are made at the first that differs,
         // and a render with the same values gives the last component again. Each value a String (plain text), a
         // Component, or null.
-        Last last = this.last.get();
+        boolean own = fast != null && fast.remembersRenders();
+        Last last = own ? (Last) fast.lastRender(this) : this.last.get();
         Object[] keptValues = last == null ? null : last.values;
         Object[] values = null;
         // The <key> slots without a value, as bits: slots 0 to 63 in a long, more in an array (rare).
@@ -292,6 +293,11 @@ final class CompiledTemplate implements Template {
             unclaimed = SlotSet.of(unknownMore);
         }
         Component rendered = this.build(values, unclaimed, inline);
+        if (own) {
+            // The values' own memory, read by one thread: every render is kept.
+            fast.lastRender(this, new Last(values, inline, rendered));
+            return rendered;
+        }
         // Kept after about one miss in eight while kept renders are given again (values that come again are kept within
         // a few renders), one in 64 while they are not (values that change at each render). The arrays are this
         // render's own and are never changed: kept as they are.

@@ -287,6 +287,7 @@ public final class Placeholder {
             case PlaceholderValue.ComponentValue ignored -> "component";
             case PlaceholderValue.DynamicComponentValue ignored -> "dynamic component";
             case PlaceholderValue.ViewerComponentValue ignored -> "viewer component";
+            case PlaceholderValue.FormattedValue ignored -> "formatted";
         };
     }
 
@@ -481,6 +482,20 @@ public final class Placeholder {
          */
         public @NotNull Builder register(@NotNull String key, String value) {
             this.put(key, value == null ? "" : value);
+            return this;
+        }
+
+        /**
+         * Adds formatted text: its tags and colour codes are read, as a resolver's text (its colours end with it).
+         * Use it for text from a configuration; text a player typed goes through {@link #register(String, String)},
+         * which is never read as tags.
+         *
+         * @param key  the placeholder key (must not be null)
+         * @param text the formatted text (null is the empty text)
+         * @return this Builder instance for method chaining
+         */
+        public @NotNull Builder registerFormatted(@NotNull String key, @Nullable String text) {
+            this.put(key, PlaceholderValue.ofFormatted(text == null ? "" : text));
             return this;
         }
 

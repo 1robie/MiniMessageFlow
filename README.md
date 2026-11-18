@@ -127,6 +127,18 @@ Component once = text.format("<red>Hello %name%", Placeholder.of("name", "Steve"
   a `Values` kept between sends, instead of building a `Placeholder` each time:
   `ValueKey PLAYER = builder.key("player")` on the builder, `Values values = text.newValues()` (one per thread, not
   thread-safe), then `values.set(PLAYER, name)` and `template.render(values, player)`.
+- **Layers, formatted values, lookups**: `values.child()` reads its own values, then its parent's (a menu's values,
+  then each slot's), with no allocation once made. `values.setFormatted(key, "&c[Admin]")` is text read as tags and
+  colour codes (from a configuration), `values.set(key, text)` plain text (what a player typed).
+  `values.lookup("state_", rest -> ...)` answers any `%state_...%` without a value. Keys can be declared after build:
+  `text.key("name")`. `values.rememberRenders(true)` keeps the last render of each template for these values: the
+  same values give the same component again, allocating nothing, so `==` tells nothing changed.
+- **Raw**: `%nick.raw%` / `<nick:raw>` shows any value (a resolver's, PlaceholderAPI's, formatted text) as written,
+  never read as tags or colour codes: for text a player may have typed.
+- **Lines**: `template.renderLines(values, viewer)` splits the render at each line break of its text and values,
+  each line keeping its style: one configured lore line whose value has several lines.
+- **Text**: `text.compileText("/pay %player% %amount.int%")` compiles a command, an amount or a URL rendered as a
+  `String`: placeholders and modifiers only, no tag read.
 - **Constants**: `constant("prefix", "<gold>[Shop]")` on the builder, for what never changes. A message with only
   constants is rendered once, when it is compiled.
 - **Resolvers** give the values a call doesn't: global placeholders, PlaceholderAPI... Their text is formatted, and

@@ -71,6 +71,7 @@ public final class Engine {
      */
     private static final Component FAILED = Component.text("failed");
     private static final PlainTextComponentSerializer PLAIN = PlainTextComponentSerializer.plainText();
+    private static final String RAW_SUFFIX = "." + PlaceholderModifiers.RAW;
 
     private final boolean legacyCodes;
     private final boolean nativeCompiler;
@@ -92,6 +93,10 @@ public final class Engine {
      * The values that never change for this instance, by key, formatted once.
      */
     private final Map<String, Component> constants;
+    /**
+     * Parses a resolver's or a formatted value's text: made once, so a cache hit allocates nothing.
+     */
+    private final java.util.function.Function<String, Component> parseText = this::parseNewText;
 
     /**
      * @param legacyCodes whether {@code &c}, {@code §c}, {@code #rrggbb}... are read
@@ -422,6 +427,20 @@ public final class Engine {
         if (plan.constant != null) {
             return plan.constant;
         }
+        // The common case first, small enough to be inlined: a plain value set in these values' own layer.
+        if (values != null && !plan.raw && plan.index >= 0) {
+            Object own = values.raw(plan.index);
+            if (own instanceof String text && !values.hasFormatted() || own instanceof Component) {
+                return own;
+            }
+        }
+        Object value = this.find(plan, placeholders, values, viewer);
+        // Raw: a component gives its plain text, and a resolver's text was not parsed (find).
+        return plan.raw && value instanceof Component component ? PLAIN.serialize(component) : value;
+    }
+
+    private @Nullable Object find(@NotNull KeyPlan plan, @NotNull Placeholder placeholders, @Nullable Values values,
+                                  @Nullable Pointered viewer) {
         String key = plan.key;
         String[] bases = plan.bases;
         boolean modifiers = bases.length > 0;
@@ -437,8 +456,7 @@ public final class Engine {
             return text;
         }
         if (raw != null) {
-            PlaceholderValue value = (PlaceholderValue) raw;
-            return value.isComponent() ? this.toComponent(key, value, viewer) : this.plainText(key, value, viewer);
+            return this.computed(plan, key, (PlaceholderValue) raw, viewer);
         }
         for (int i = 0; i < bases.length; i++) {
             Object base = placeholders.raw(bases[i]);
@@ -448,7 +466,7 @@ public final class Engine {
                 String text = chain == null ? null : chain.apply(base instanceof String string ? string
                         : this.plainText(bases[i], (PlaceholderValue) base, viewer));
                 if (text != null) {
-                    return text;
+                    return base instanceof PlaceholderValue value && value.isFormatted() ? this.formatted(plan, text) : text;
                 }
                 break;
             }
@@ -463,7 +481,7 @@ public final class Engine {
             }
             String text = this.resolve(resolver, key, viewer);
             if (text != null) {
-                return this.parseResolverText(text);
+                return plan.raw ? text : this.parseResolverText(text);
             }
         }
         if (modifiers) {
@@ -482,7 +500,7 @@ public final class Engine {
                     PlaceholderModifiers.Chain chain = plan.chains[i];
                     String modified = chain == null ? null : chain.apply(text);
                     if (modified != null) {
-                        return component != null ? modified : this.parseResolverText(modified);
+                        return component != null || plan.raw ? modified : this.parseResolverText(modified);
                     }
                     break;
                 }
@@ -496,29 +514,113 @@ public final class Engine {
      * its modifiers. Null when it has none, or when the modifiers don't apply.
      */
     private @Nullable Object fromValues(@NotNull KeyPlan plan, @NotNull Values values, @Nullable Pointered viewer) {
-        if (plan.index >= 0) {
-            Object raw = values.raw(plan.index);
+        int index = plan.index >= 0 ? plan.index : this.index(plan, plan.index, plan.key);
+        Object raw = index < 0 ? null : values.raw(index);
+        Values layer = values;
+        if (raw == null && index >= 0 && values.parent() != null) {
+            layer = values.holder(index);
+            raw = layer == null ? null : layer.raw(index);
+        }
+        if (raw != null) {
+            if (raw instanceof String text) {
+                return layer.hasFormatted() && layer.isFormatted(index) ? this.formatted(plan, text) : text;
+            }
             if (raw instanceof PlaceholderValue computed) {
-                return computed.isComponent() ? this.toComponent(plan.key, computed, viewer) : this.plainText(plan.key, computed, viewer);
+                return this.computed(plan, plan.key, computed, viewer);
             }
-            if (raw != null) {
-                return raw;
-            }
+            return raw;
         }
         int[] indexes = plan.baseIndexes;
         for (int i = 0; i < indexes.length; i++) {
-            Object raw = indexes[i] < 0 ? null : values.raw(indexes[i]);
-            if (raw != null) {
+            int baseIndex = this.index(plan, indexes[i], plan.bases[i]);
+            layer = baseIndex < 0 ? null : values.holder(baseIndex);
+            if (layer != null) {
                 PlaceholderModifiers.Chain chain = plan.chains[i];
                 if (chain == null) {
                     return null;
                 }
-                return chain.apply(raw instanceof String string ? string
-                        : raw instanceof PlaceholderValue computed ? this.plainText(plan.bases[i], computed, viewer)
-                        : PLAIN.serialize((Component) raw));
+                Object base = layer.raw(baseIndex);
+                String modified = chain.apply(base instanceof String string ? string
+                        : base instanceof PlaceholderValue computed ? this.plainText(plan.bases[i], computed, viewer)
+                        : PLAIN.serialize((Component) base));
+                boolean formatted = base instanceof String ? layer.isFormatted(baseIndex)
+                        : base instanceof PlaceholderValue computed && computed.isFormatted();
+                return modified != null && formatted ? this.formatted(plan, modified) : modified;
+            }
+        }
+        return this.fromLookups(plan, values);
+    }
+
+    /**
+     * The value a prefix lookup of the values gives: the key itself, then each base with its modifiers. Null when no
+     * lookup of any layer has one.
+     */
+    private @Nullable Object fromLookups(@NotNull KeyPlan plan, @NotNull Values values) {
+        for (Values layer = values; layer != null; layer = layer.parent()) {
+            int count = layer.lookupCount();
+            for (int i = 0; i < count; i++) {
+                String prefix = layer.lookupPrefix(i);
+                if (plan.key.startsWith(prefix)) {
+                    String text = this.lookup(layer, i, plan.key, prefix);
+                    if (text != null) {
+                        return layer.isLookupFormatted(i) ? this.formatted(plan, text) : text;
+                    }
+                }
+                for (int b = 0; b < plan.bases.length; b++) {
+                    if (plan.bases[b].startsWith(prefix)) {
+                        String text = this.lookup(layer, i, plan.bases[b], prefix);
+                        if (text != null) {
+                            PlaceholderModifiers.Chain chain = plan.chains[b];
+                            String modified = chain == null ? null : chain.apply(text);
+                            if (modified == null) {
+                                return null;
+                            }
+                            return layer.isLookupFormatted(i) ? this.formatted(plan, modified) : modified;
+                        }
+                    }
+                }
             }
         }
         return null;
+    }
+
+    private @Nullable String lookup(@NotNull Values layer, int index, @NotNull String key, @NotNull String prefix) {
+        try {
+            return layer.lookupFunction(index).apply(key.substring(prefix.length()));
+        } catch (RuntimeException e) {
+            this.report(key, e);
+            return null;
+        }
+    }
+
+    /**
+     * The place of a key in {@link Values}: the one found when the message was compiled, or, for a key declared
+     * since, found by its name (a lookup per render, only while the message is older than the key).
+     */
+    private int index(@NotNull KeyPlan plan, int planned, @NotNull String key) {
+        if (planned >= 0 || this.keys.size() == plan.keysSeen) {
+            return planned;
+        }
+        return this.keys.indexOf(key);
+    }
+
+    /**
+     * A value computed at the render: a component, plain text, or formatted text parsed (as written with raw).
+     */
+    private @NotNull Object computed(@NotNull KeyPlan plan, @NotNull String key, @NotNull PlaceholderValue value,
+                                     @Nullable Pointered viewer) {
+        if (value.isComponent()) {
+            return this.toComponent(key, value, viewer);
+        }
+        String text = this.plainText(key, value, viewer);
+        return value.isFormatted() ? this.formatted(plan, text) : text;
+    }
+
+    /**
+     * Formatted text as a component, parsed once per text (the resolver texts' cache), or as written with raw.
+     */
+    private @NotNull Object formatted(@NotNull KeyPlan plan, @NotNull String text) {
+        return plan.raw ? text : this.parseResolverText(text);
     }
 
     @NotNull ValueKeys keys() {
@@ -553,12 +655,25 @@ public final class Engine {
          * {@code String} its modifiers give. Nothing else is asked then.
          */
         final @Nullable Object constant;
+        /**
+         * Whether the placeholder ends with the {@code raw} modifier: its value, whatever its source, is placed as
+         * plain text, never read as tags or colour codes.
+         */
+        final boolean raw;
+        /**
+         * How many keys were declared when this plan was made: a key declared since is looked up by name.
+         */
+        final int keysSeen;
 
-        private KeyPlan(@NotNull String key, @NotNull String @NotNull [] bases, @Nullable PlaceholderModifiers.Chain @NotNull [] chains,
-                        @NotNull ValueKeys keys, @NotNull Map<String, Component> constants) {
-            this.constant = constant(key, bases, chains, constants);
+        private KeyPlan(@NotNull String key, @NotNull String written, boolean raw, @NotNull String @NotNull [] bases,
+                        @Nullable PlaceholderModifiers.Chain @NotNull [] chains, @NotNull ValueKeys keys,
+                        @NotNull Map<String, Component> constants) {
+            Object constant = constant(key, bases, chains, constants);
+            this.constant = raw && constant instanceof Component component ? PLAIN.serialize(component) : constant;
+            this.raw = raw;
+            this.keysSeen = keys.size();
             this.key = key;
-            this.written = "%" + key + "%";
+            this.written = written;
             this.bases = bases;
             this.chains = chains;
             this.index = keys.indexOf(key);
@@ -588,14 +703,40 @@ public final class Engine {
     }
 
     @NotNull KeyPlan plan(@NotNull String key) {
+        return this.plan(key, false);
+    }
+
+    /**
+     * The plan of a placeholder in a {@link CompiledText}: every value placed as written, as with raw.
+     */
+    @NotNull KeyPlan textPlan(@NotNull String key) {
+        return this.plan(key, true);
+    }
+
+    /**
+     * Compiles a text whose placeholders are rendered as a {@code String}.
+     */
+    public @NotNull fr.robie.minimessageflow.TextTemplate compileText(@NotNull String source) {
+        return new CompiledText(this, source);
+    }
+
+    private @NotNull KeyPlan plan(@NotNull String key, boolean forceRaw) {
+        String written = "%" + key + "%";
+        boolean raw = key.length() > RAW_SUFFIX.length() && key.endsWith(RAW_SUFFIX);
+        if (raw) {
+            // The raw modifier changes how the value is placed, not its text: the key is read without it.
+            key = key.substring(0, key.length() - RAW_SUFFIX.length());
+        }
+        raw |= forceRaw;
         List<String> bases = new ArrayList<>(2);
         List<PlaceholderModifiers.Chain> chains = new ArrayList<>(2);
         for (int dot = key.lastIndexOf('.'); dot > 0; dot = key.lastIndexOf('.', dot - 1)) {
             bases.add(key.substring(0, dot));
             chains.add(this.modifiers.compile(key.substring(dot + 1)));
         }
-        return bases.isEmpty() ? new KeyPlan(key, KeyPlan.NO_BASES, KeyPlan.NO_CHAINS, this.keys, this.constants)
-                : new KeyPlan(key, bases.toArray(KeyPlan.NO_BASES), chains.toArray(KeyPlan.NO_CHAINS), this.keys, this.constants);
+        return bases.isEmpty() ? new KeyPlan(key, written, raw, KeyPlan.NO_BASES, KeyPlan.NO_CHAINS, this.keys, this.constants)
+                : new KeyPlan(key, written, raw, bases.toArray(KeyPlan.NO_BASES), chains.toArray(KeyPlan.NO_CHAINS), this.keys,
+                this.constants);
     }
 
     /**
@@ -657,7 +798,11 @@ public final class Engine {
     }
 
     private @NotNull Component parseResolverText(@NotNull String text) {
-        return this.resolverTexts.get(text, t -> this.miniMessage.deserialize(this.legacy(stripNoncharacters(t))));
+        return this.resolverTexts.get(text, this.parseText);
+    }
+
+    private @NotNull Component parseNewText(@NotNull String text) {
+        return this.miniMessage.deserialize(this.legacy(stripNoncharacters(text)));
     }
 
     /**
@@ -842,7 +987,7 @@ public final class Engine {
      * Whether a token can be a placeholder key: {@link PlaceholderScanner#isKey}, the rule a declared key's name
      * follows too.
      */
-    private static boolean isKey(@NotNull String key) {
+    static boolean isKey(@NotNull String key) {
         return PlaceholderScanner.isKey(key);
     }
 

@@ -100,11 +100,31 @@ public final class MiniMessageFlow {
     }
 
     /**
+     * Compiles a text rendered as a {@code String} (a command, an amount, a URL): only its {@code %key%}
+     * placeholders are read, every value placed as written. See {@link TextTemplate}. Not cached here: keep it.
+     */
+    public @NotNull TextTemplate compileText(@NotNull String text) {
+        Objects.requireNonNull(text, "text cannot be null");
+        return this.engine.compileText(text);
+    }
+
+    /**
      * New {@link Values} for the keys declared on the builder ({@link Builder#key}), all unset: make one per thread
      * that renders, set it for each send, and give it to {@link Template#render(Values, Pointered)}.
      */
     public @NotNull Values newValues() {
         return this.keys.newValues(this.numberStyle);
+    }
+
+    /**
+     * Declares a key after the instance is built (a name read from a configuration), or gives the one already
+     * declared. Thread-safe. A message compiled after the key is declared reads it by its place; one compiled before
+     * reads it by its name, slower: declare the keys of a file before compiling its messages.
+     *
+     * @throws IllegalArgumentException when no placeholder can have this name
+     */
+    public @NotNull ValueKey key(@NotNull String name) {
+        return this.keys.add(name);
     }
 
     /**

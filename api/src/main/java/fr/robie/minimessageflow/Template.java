@@ -109,6 +109,23 @@ public interface Template {
     }
 
     /**
+     * Renders the message as lines, split at each {@code \n} of its text and of its values ({@code <newline>}
+     * included): an item's lore from one line of configuration whose value has several lines. Each line keeps the
+     * style open where it starts, as the client would show the text on several lines; a hover's text is not split.
+     * A message without a break is one line, the component {@link #render} gives.
+     */
+    default @NotNull List<Component> renderLines(@NotNull Placeholder placeholders, @Nullable Pointered viewer) {
+        return fr.robie.minimessageflow.internal.ComponentLines.split(this.render(placeholders, viewer));
+    }
+
+    /**
+     * As {@link #renderLines(Placeholder, Pointered)}, with values kept in a {@link Values}.
+     */
+    default @NotNull List<Component> renderLines(@NotNull Values values, @Nullable Pointered viewer) {
+        return fr.robie.minimessageflow.internal.ComponentLines.split(this.render(values, viewer));
+    }
+
+    /**
      * Renders the message as plain text, without colours or events: for a console, a log, a title compared as text.
      */
     default @NotNull String renderPlain(@NotNull Placeholder placeholders, @Nullable Pointered viewer) {
