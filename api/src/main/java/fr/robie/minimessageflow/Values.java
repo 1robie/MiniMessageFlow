@@ -199,6 +199,9 @@ public final class Values {
      * nobody can declare in advance ({@code %state_<anything>%}). The function gets the rest of the key
      * ({@code count} for {@code %state_count%}), at each render, and returns null to leave the placeholder to the
      * resolvers. Modifiers apply ({@code %state_count.comma%}). Replaces this layer's lookup of the same prefix.
+     * Lookups are asked this layer first, then each parent, each layer's in the order they were added; the first to
+     * give a text answers, and when a modifier then gives no text the placeholder goes to the resolvers, no other
+     * lookup being asked.
      */
     public @NotNull Values lookup(@NotNull String prefix, @NotNull Function<String, String> function) {
         return this.addLookup(prefix, function, false);
@@ -397,7 +400,8 @@ public final class Values {
 
     /**
      * These values as a {@link Placeholder}, a copy, the parents' values included (this layer's first): for another
-     * thread, or a {@code Template} that does not read {@link Values}.
+     * thread, or a {@code Template} that does not read {@link Values}. Prefix lookups ({@link #lookup}) are not
+     * copied: they are asked at each render, on the thread that renders.
      */
     public @NotNull Placeholder toPlaceholder() {
         Placeholder.Builder builder = Placeholder.builder();

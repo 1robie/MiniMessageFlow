@@ -250,6 +250,7 @@ public final class MiniMessageFlow {
         private final ModifierSet.Builder modifiers = ModifierSet.builder();
         private final ValueKeys.Builder keys = ValueKeys.builder();
         private @Nullable ValueKeys sharedKeys;
+        private boolean declaredOwnKeys;
         private final Map<String, Object> constants = new LinkedHashMap<>();
         private boolean bareHexColors = true;
 
@@ -446,7 +447,11 @@ public final class MiniMessageFlow {
          * @param name the placeholder's name, without {@code %} or modifiers
          */
         public @NotNull ValueKey key(@NotNull String name) {
-            return this.sharedKeys != null ? this.sharedKeys.add(name) : this.keys.key(name);
+            if (this.sharedKeys != null) {
+                return this.sharedKeys.add(name);
+            }
+            this.declaredOwnKeys = true;
+            return this.keys.key(name);
         }
 
         /**
@@ -454,12 +459,18 @@ public final class MiniMessageFlow {
          * with {@code ValueKeys.builder().build()}, instead of new ones. Instances on the same keys accept each
          * other's {@link ValueKey}s and {@link Values}: a plugin that builds a new instance at each reload (new tags,
          * a new number style) keeps the keys and the {@code Values} it made before. Keys declared on this builder
-         * are added to them.
+         * after this call are added to them.
          *
          * @param keys the keys, which can still be added to
+         * @throws IllegalStateException when {@link #key} was called before: those keys could not be read by the
+         *                               instance; call this first
          */
         public @NotNull Builder keys(@NotNull ValueKeys keys) {
-            this.sharedKeys = Objects.requireNonNull(keys, "keys cannot be null");
+            Objects.requireNonNull(keys, "keys cannot be null");
+            if (this.declaredOwnKeys) {
+                throw new IllegalStateException("keys(ValueKeys) must be called before key(name)");
+            }
+            this.sharedKeys = keys;
             return this;
         }
 

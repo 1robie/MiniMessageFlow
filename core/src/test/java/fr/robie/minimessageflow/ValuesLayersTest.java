@@ -144,6 +144,15 @@ class ValuesLayersTest {
     }
 
     @Test
+    @DisplayName("keys(ValueKeys) after key(name) fails instead of dropping the keys declared")
+    void sharedKeysAfterOwnKey() {
+        MiniMessageFlow first = MiniMessageFlow.builder().build();
+        MiniMessageFlow.Builder builder = MiniMessageFlow.builder();
+        builder.key("own");
+        assertThrows(IllegalStateException.class, () -> builder.keys(first.keys()));
+    }
+
+    @Test
     @DisplayName("toPlaceholder copies every layer, this one's first, and keeps the kinds")
     void snapshot() {
         MiniMessageFlow.Builder builder = MiniMessageFlow.builder();
