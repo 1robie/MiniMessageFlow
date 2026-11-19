@@ -59,7 +59,7 @@ class EngineTest {
     @DisplayName("A gradient over a placeholder is coloured at render; a styled value is parsed with MiniMessage, cached")
     void gradientOverValues() {
         Template template = this.flow.compile("<gradient:red:blue>Welcome %name%!</gradient> <hover:show_text:'hi'>%rank%</hover>");
-        assertInstanceOf(Engine.Form.Native.class, ((CompiledTemplate) template).baseForm());
+        assertInstanceOf(Engine.Form.Native.class, compiled(template).baseForm());
         assertEquals("Welcome Alex! VIP", PLAIN.serialize(template.render(Placeholder.of("name", "Alex", "rank", "VIP"))));
         Placeholder gold = Placeholder.builder()
                 .register("name", Component.text("Steve", NamedTextColor.GOLD)).register("rank", "VIP").build();
@@ -77,13 +77,13 @@ class EngineTest {
         for (String message : new String[]{"<click:run_command:'/tp %name%'>[tp]</click>", "<insert:%name%>x</insert> %b%",
                 "<click:run_command:'/a%name%'>x", "<click:run_command:'/w %name%1'>x", "<click:run_command:'/w #%name%%name%'>x",
                 "<red><click:suggest_command:'/w %name% '><gradient:red:blue>%name%</gradient></click>"}) {
-            CompiledTemplate template = (CompiledTemplate) this.flow.compile(message);
+            CompiledTemplate template = compiled(this.flow.compile(message));
             assertNotNull(template.inlineForm(), message);
         }
         // A value under a gradient in a hover's text, or a click inside a gradient: the old path.
         for (String message : new String[]{"<hover:show_text:'<gradient:red:blue>%name%</gradient>'>x",
                 "<gradient:red:blue><click:suggest_command:'/w %name% '>%name%</click></gradient>"}) {
-            assertNull(((CompiledTemplate) this.flow.compile(message)).inlineForm(), message);
+            assertNull(compiled(this.flow.compile(message)).inlineForm(), message);
         }
     }
 
@@ -111,7 +111,7 @@ class EngineTest {
     void strayTagStart() {
         Placeholder name = Placeholder.of("name", "O'Brien & <Co>");
         for (String message : new String[]{"I <3 you %name%", "5 < 6, hi %name%", "<red>a <- b</red> %name%", "x <3 %name% <b>y"}) {
-            CompiledTemplate template = (CompiledTemplate) this.flow.compile(message);
+            CompiledTemplate template = compiled(this.flow.compile(message));
             assertNull(template.inlineForm(), message);
             assertFalse(template.baseForm() instanceof Engine.Form.WithValues, message);
             assertTrue(PLAIN.serialize(template.render(name)).contains("O'Brien & <Co>"), message);
@@ -260,8 +260,12 @@ class EngineTest {
         }
     }
 
+    private static CompiledTemplate compiled(fr.robie.minimessageflow.Template template) {
+        return (CompiledTemplate) (template instanceof LiveTemplate live ? live.current() : template);
+    }
+
     private Engine.Form form(String message) {
-        return ((CompiledTemplate) this.flow.compile(message)).baseForm();
+        return compiled(this.flow.compile(message)).baseForm();
     }
 
     @Test
@@ -306,7 +310,7 @@ class EngineTest {
             assertInstanceOf(Engine.Form.Markers.class, this.form(message), message);
         }
         MiniMessageFlow noNative = MiniMessageFlow.builder().nativeCompiler(false).build();
-        assertInstanceOf(Engine.Form.Markers.class, ((CompiledTemplate) noNative.compile("Hi %name%")).baseForm());
+        assertInstanceOf(Engine.Form.Markers.class, compiled(noNative.compile("Hi %name%")).baseForm());
     }
 
     @Test

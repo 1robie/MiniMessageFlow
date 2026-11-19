@@ -5,7 +5,7 @@ colour codes (`&c`, `§c`, `&#rrggbb`, `#rrggbb`) and placeholders written `%nam
 once and renders it in nanoseconds. It runs on Adventure 4.17 (Paper 1.20.6) to 5.x (Minecraft 26), and has no
 dependency besides Adventure.
 
-It is the formatting engine of MessageFlow 1.2, tested on Paper 1.20.6, 1.21 and 26. Version 1.4.0
+It is the formatting engine of MessageFlow 1.2, tested on Paper 1.20.6, 1.21 and 26. Version 1.5.0
 ([changelog](CHANGELOG.md)).
 
 ## Install
@@ -20,9 +20,9 @@ repositories {
     maven("https://jitpack.io")
 }
 dependencies {
-    implementation("com.github.1robie.MiniMessageFlow:MiniMessageFlow:1.4.0")
+    implementation("com.github.1robie.MiniMessageFlow:MiniMessageFlow:1.5.0")
     // or, on Paper:
-    // implementation("com.github.1robie.MiniMessageFlow:paper-minimessageflow:1.4.0")
+    // implementation("com.github.1robie.MiniMessageFlow:paper-minimessageflow:1.5.0")
 }
 // Shade it into your plugin and relocate it (shadow plugin):
 tasks.shadowJar {
@@ -40,7 +40,7 @@ tasks.shadowJar {
 <dependency>
     <groupId>com.github.1robie.MiniMessageFlow</groupId>
     <artifactId>MiniMessageFlow</artifactId> <!-- or paper-minimessageflow -->
-    <version>1.4.0</version>
+    <version>1.5.0</version>
 </dependency>
 <!-- maven-shade-plugin: <relocation><pattern>fr.robie.minimessageflow</pattern>
      <shadedPattern>your.plugin.libs.minimessageflow</shadedPattern></relocation> -->
@@ -103,7 +103,7 @@ Adventure 5 lets only MiniMessage make the context its tags are asked with.
 ```java
 MiniMessageFlow text = MiniMessageFlow.builder()
         .resolver(Resolver.of(globals))   // values the call doesn't give: %server%, <server>... (formatted text)
-        .build();                          // immutable, thread-safe: build one and share it
+        .build();                          // thread-safe: build one and share it
 
 Template shop = text.compile("<green>%item%</green> for <gold><price:comma></gold> <click:run_command:'/buy %id%'>[Buy]");
 Component line = shop.render(Placeholder.builder()
@@ -114,6 +114,45 @@ Component line = shop.render(Placeholder.builder()
 
 Component once = text.format("<red>Hello %name%", Placeholder.of("name", "Steve"));   // compiled and cached
 ```
+
+### Which one to use
+
+| You have | Use | Example |
+|---|---|---|
+| A message sent once, or rarely | `format` | `text.format("<red>Hello %name%", Placeholder.of("name", name))` |
+| A message sent often | `compile` once, keep the `Template` | `Template join = text.compile("<green>+ %player%")` |
+| A whole configuration, on reload | `compileAll(Map)` | `Map<String, Template> messages = text.compileAll(texts)` |
+| A list of lines (lore, help page) | `compileList(List)` → `TemplateList` | `meta.lore(text.compileList(lines).render(values, player))` |
+| A command, an amount, a URL (a `String`) | `compileText` | `text.compileText("/pay %player% %amount.int%").render(values, null)` |
+| Values for one send | `Placeholder` | `Placeholder.of("item", "Sword", "price", "1250")` |
+| The same names on every send (a menu, a broadcast) | `ValueKey` + `Values` | `values.set(PLAYER, name); template.render(values, player)` |
+| Text a player typed | `set` / `register` (plain text) | `values.set(NICK, typed)` |
+| Text from a configuration (`&c`, `<red>`) | `setFormatted` / `registerFormatted` | `values.setFormatted(PREFIX, config.getString("prefix"))` |
+| Any value forced to plain text | the `raw` modifier | `%nick.raw%`, `<papi:player_name:raw>` |
+| A value that never changes | `constant` | `constant("prefix", "<gold>[Shop]")` |
+| A value every message may ask for (global) | `resolver` | `resolver(Resolver.of(globals))` |
+| A value with arguments, per viewer | `valueTag` | `valueTag("stat", (args, viewer) -> ...)` → `<stat:kills>` |
+| A style or a fixed piece of text as a tag | `tag` / `tags` | `tag("uwu", Tag.styling(NamedTextColor.LIGHT_PURPLE))` |
+| Keys nobody knows in advance (`%state_*%`) | `values.lookup(prefix, fn)` | `values.lookup("state_", rest -> states.get(rest))` |
+
+### Adding to an instance after build
+
+Tags, resolvers, value tags and constants can be added and removed at any time, on the instance itself. Every
+template it compiled, before or after, uses them from its next render: it compiles its message again once, then
+renders as fast as before.
+
+```java
+MiniMessageFlow text = MiniMessageFlow.create();
+Template hello = text.compile("<uwu>Hello %server%</uwu>");   // <uwu> is not a tag yet: shown as written
+
+text.tag("uwu", Tag.styling(NamedTextColor.LIGHT_PURPLE))       // now it is
+    .constant("server", "Lobby");
+hello.render();                                                 // "Hello Lobby", light purple
+
+text.removeTag("uwu");                                          // and back
+```
+
+### Reference
 
 - **Placeholders**: `%name%` and `<name>` are the same placeholder. Modifiers: `%price.comma%`, `<price:comma>`,
   `<n:plural:item:items>`, `%name.upper%`... (yours: `modifier(...)` on the builder, or

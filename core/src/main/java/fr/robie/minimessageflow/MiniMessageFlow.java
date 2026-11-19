@@ -4,6 +4,9 @@ import fr.robie.minimessageflow.cache.Cache;
 import fr.robie.minimessageflow.cache.CacheFactory;
 import fr.robie.minimessageflow.core.BoundedCache;
 import fr.robie.minimessageflow.core.Engine;
+import fr.robie.minimessageflow.core.EngineSource;
+import fr.robie.minimessageflow.core.LiveTemplate;
+import fr.robie.minimessageflow.core.LiveText;
 import fr.robie.minimessageflow.core.ValueTagResolver;
 import net.kyori.adventure.pointer.Pointered;
 import net.kyori.adventure.text.Component;
@@ -26,7 +29,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.BiConsumer;
 
 /**
- * Formats MiniMessage text with placeholders. Immutable and thread-safe: build one and share it.
+ * Formats MiniMessage text with placeholders. Thread-safe: build one and share it.
  * <pre>{@code
  * MiniMessageFlow text = MiniMessageFlow.builder()
  *         .resolver(Resolver.of(globals))       // %server%...
@@ -37,10 +40,41 @@ import java.util.function.BiConsumer;
  * }</pre>
  * Compile the messages you send often once and keep the {@link Template}; {@link #format} is for other texts and
  * caches what it compiles.
+ * <p>
+ * <strong>Changing it after build</strong>: tags, resolvers, value tags and constants can be added and removed at
+ * any time ({@link #tag}, {@link #resolver}, {@link #valueTag}, {@link #constant}). Every template it compiled,
+ * before or after, uses them from its next render: it compiles its message again once, then renders as fast as
+ * before. Several changes in a row cost one rebuild: the instance is made again on its next use, not at each change.
  */
 public final class MiniMessageFlow {
 
-    private final Engine engine;
+    /**
+     * What the builder set once: never changes.
+     */
+    private record Settings(boolean legacyCodes, int valueCacheSize, int templateCacheSize, boolean nativeCompiler,
+                            boolean verifyNative, @NotNull CacheFactory caches,
+                            @NotNull BiConsumer<String, Throwable> errors, @NotNull ModifierSet modifiers,
+                            boolean bareHexColors, @NotNull ValueKeys keys) {
+    }
+
+    /**
+     * A tag resolver added to an instance, with its name when added by {@link #tag(String, Tag)}.
+     */
+    private record TagEntry(@Nullable String name, @NotNull TagResolver resolver) {
+    }
+
+    private final Settings settings;
+    private final List<TagEntry> tags = new ArrayList<>();
+    /**
+     * The resolvers, and the value tags at their place among them ({@link PendingValueTag}).
+     */
+    private final List<Resolver> resolvers = new ArrayList<>();
+    private final Map<String, Object> constants = new LinkedHashMap<>();
+    /**
+     * The engine for the definitions as they are; null after a change, made again on use.
+     */
+    private volatile @Nullable Engine engine;
+    private final EngineSource source = this::engine;
     private final Cache<String, Template> templates;
     private final ValueKeys keys;
     /**
@@ -52,32 +86,288 @@ public final class MiniMessageFlow {
         this.keys = builder.builtKeys();
         ModifierSet modifiers = builder.modifiers.build();
         this.numberStyle = modifiers.numberStyle();
-        TagResolver tags = builder.tags.isEmpty() ? null
-                : builder.tags.size() == 1 ? builder.tags.getFirst() : TagResolver.resolver(builder.tags);
-        // The value tags added one after another make one resolver, so a key finds its tag with one lookup.
-        List<Resolver> resolvers = new ArrayList<>(builder.resolvers.size());
+        this.settings = new Settings(builder.legacyCodes, builder.valueCacheSize, builder.templateCacheSize,
+                builder.nativeCompiler, builder.verifyNative, builder.caches, Objects.requireNonNull(builder.errors),
+                modifiers, builder.bareHexColors, this.keys);
+        for (TagResolver tags : builder.tags) {
+            this.tags.add(new TagEntry(null, tags));
+        }
+        this.resolvers.addAll(builder.resolvers);
+        this.constants.putAll(builder.constants);
+        this.templates = builder.caches.create(CacheFactory.Kind.TEMPLATES, builder.templateCacheSize);
+        TagResolver visible = this.visibleTags();
+        for (Resolver resolver : this.resolvers) {
+            if (resolver instanceof PendingValueTag(String name, ValueTag ignored) && visible != null && visible.has(name)) {
+                throw new IllegalArgumentException("<" + name + "> is claimed by a tag given to tags(...): it would never reach the value tag");
+            }
+        }
+        this.engine = this.makeEngine();
+    }
+
+    /**
+     * The engine for the definitions as they are now, made again after a change.
+     */
+    private @NotNull Engine engine() {
+        Engine engine = this.engine;
+        if (engine != null) {
+            return engine;
+        }
+        synchronized (this) {
+            engine = this.engine;
+            if (engine == null) {
+                engine = this.makeEngine();
+                this.engine = engine;
+            }
+            return engine;
+        }
+    }
+
+    /**
+     * Makes an engine from the definitions. Called holding the lock, or from the constructor.
+     */
+    private @NotNull Engine makeEngine() {
+        TagResolver tags = this.visibleTags();
+        List<Resolver> resolvers = new ArrayList<>();
+        this.ownResolvers(resolvers, tags);
+        Map<String, Object> constants = new LinkedHashMap<>();
+        this.collectConstants(constants);
+        Settings s = this.settings;
+        return new Engine(s.legacyCodes(), resolvers, tags, s.valueCacheSize(), s.nativeCompiler(),
+                s.verifyNative(), s.caches(), s.errors(), s.modifiers(), s.bareHexColors(), s.keys(), constants);
+    }
+
+    /**
+     * The tags of this instance (a later one wins a name); null when none.
+     */
+    private @Nullable TagResolver visibleTags() {
+        List<TagResolver> all = new ArrayList<>();
+        this.collectTags(all);
+        return all.isEmpty() ? null : all.size() == 1 ? all.getFirst() : TagResolver.resolver(all);
+    }
+
+    private void collectTags(@NotNull List<TagResolver> out) {
+        for (TagEntry entry : this.tags) {
+            out.add(entry.resolver());
+        }
+    }
+
+    private void collectConstants(@NotNull Map<String, Object> out) {
+        out.putAll(this.constants);
+    }
+
+    /**
+     * Adds this instance's own resolvers, the value tags added one after another made one resolver (a key finds
+     * its tag with one lookup). A value tag a tag claims is left out: the tag wins its name.
+     */
+    private void ownResolvers(@NotNull List<Resolver> out, @Nullable TagResolver tags) {
         Map<String, List<ValueTag>> group = new LinkedHashMap<>();
-        for (Resolver resolver : builder.resolvers) {
+        for (Resolver resolver : this.resolvers) {
             if (resolver instanceof PendingValueTag(String name, ValueTag tag)) {
-                if (tags != null && tags.has(name)) {
-                    throw new IllegalArgumentException("<" + name + "> is claimed by a tag given to tags(...): it would never reach the value tag");
+                if (tags == null || !tags.has(name)) {
+                    group.computeIfAbsent(name, n -> new ArrayList<>(1)).add(tag);
                 }
-                group.computeIfAbsent(name, n -> new ArrayList<>(1)).add(tag);
             } else {
                 if (!group.isEmpty()) {
-                    resolvers.add(new ValueTagResolver(group, modifiers));
+                    out.add(new ValueTagResolver(group, this.settings.modifiers()));
                     group = new LinkedHashMap<>();
                 }
-                resolvers.add(resolver);
+                out.add(resolver);
             }
         }
         if (!group.isEmpty()) {
-            resolvers.add(new ValueTagResolver(group, modifiers));
+            out.add(new ValueTagResolver(group, this.settings.modifiers()));
         }
-        this.engine = new Engine(builder.legacyCodes, resolvers, tags, builder.valueCacheSize,
-                builder.nativeCompiler, builder.verifyNative, builder.caches, builder.errors, modifiers,
-                builder.bareHexColors, this.keys, builder.constants);
-        this.templates = builder.caches.create(CacheFactory.Kind.TEMPLATES, builder.templateCacheSize);
+    }
+
+    /**
+     * Makes the engine again on its next use. Called holding the lock.
+     */
+    private void changed() {
+        this.engine = null;
+        this.templates.clear();
+    }
+
+    /**
+     * Whether a value tag of this name was added.
+     */
+    private boolean hasValueTag(@NotNull String name) {
+        for (Resolver resolver : this.resolvers) {
+            if (resolver instanceof PendingValueTag(String tagName, ValueTag ignored) && tagName.equals(name)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // --- changes after build ------------------------------------------------------------------------------------
+
+    /**
+     * Adds a MiniMessage tag, or replaces the one this instance added with this name. Every template of this
+     * instance reads it from its next render; a {@code <name>} that was a placeholder becomes
+     * the tag. As with {@link Builder#tag}, a tag of the message: it may be resolved once, when compiled.
+     *
+     * @throws IllegalArgumentException for a name that is not lower-case letters, digits, '_' and '-', or that a
+     *                                  value tag of this instance uses
+     */
+    public @NotNull MiniMessageFlow tag(@NotNull String name, @NotNull Tag tag) {
+        String checked = Builder.tagName(name);
+        Objects.requireNonNull(tag, "tag cannot be null");
+        synchronized (this) {
+            if (this.hasValueTag(checked)) {
+                throw new IllegalArgumentException("<" + checked + "> is a value tag: the tag would hide it");
+            }
+            this.tags.removeIf(entry -> checked.equals(entry.name()));
+            this.tags.add(new TagEntry(checked, TagResolver.resolver(checked, tag)));
+            this.changed();
+        }
+        return this;
+    }
+
+    /**
+     * Adds MiniMessage tags, as {@link Builder#tags}; {@link #removeTags} removes them. A value tag whose name they
+     * claim is hidden while they are here.
+     */
+    public @NotNull MiniMessageFlow tags(@NotNull TagResolver tags) {
+        Objects.requireNonNull(tags, "tags cannot be null");
+        synchronized (this) {
+            this.tags.add(new TagEntry(null, tags));
+            this.changed();
+        }
+        return this;
+    }
+
+    /**
+     * Removes the tag this instance added with {@link #tag(String, Tag)}.
+     *
+     * @return whether there was one
+     */
+    public boolean removeTag(@NotNull String name) {
+        Objects.requireNonNull(name, "name cannot be null");
+        synchronized (this) {
+            boolean removed = this.tags.removeIf(entry -> name.equals(entry.name()));
+            if (removed) {
+                this.changed();
+            }
+            return removed;
+        }
+    }
+
+    /**
+     * Removes tags this instance was given, by the builder or {@link #tags(TagResolver)}, compared by identity.
+     *
+     * @return whether they were here
+     */
+    public boolean removeTags(@NotNull TagResolver tags) {
+        Objects.requireNonNull(tags, "tags cannot be null");
+        synchronized (this) {
+            boolean removed = this.tags.removeIf(entry -> entry.resolver() == tags);
+            if (removed) {
+                this.changed();
+            }
+            return removed;
+        }
+    }
+
+    /**
+     * Adds a resolver, asked after the others.
+     */
+    public @NotNull MiniMessageFlow resolver(@NotNull Resolver resolver) {
+        Objects.requireNonNull(resolver, "resolver cannot be null");
+        synchronized (this) {
+            this.resolvers.add(resolver);
+            this.changed();
+        }
+        return this;
+    }
+
+    /**
+     * Removes a resolver of this instance, compared by identity.
+     *
+     * @return whether it was here
+     */
+    public boolean removeResolver(@NotNull Resolver resolver) {
+        Objects.requireNonNull(resolver, "resolver cannot be null");
+        synchronized (this) {
+            boolean removed = this.resolvers.removeIf(r -> r == resolver);
+            if (removed) {
+                this.changed();
+            }
+            return removed;
+        }
+    }
+
+    /**
+     * Adds a value tag, as {@link Builder#valueTag}: {@code <name:args>} and {@code %name:args%} ask it at each
+     * render. Added after one of the same name, it is asked first.
+     *
+     * @throws IllegalArgumentException for a standard tag's name, or one a tag of this instance claims
+     */
+    public @NotNull MiniMessageFlow valueTag(@NotNull String name, @NotNull ValueTag tag) {
+        String checked = Builder.valueTagName(name);
+        Objects.requireNonNull(tag, "tag cannot be null");
+        synchronized (this) {
+            TagResolver visible = this.visibleTags();
+            if (visible != null && visible.has(checked)) {
+                throw new IllegalArgumentException("<" + checked + "> is claimed by a tag: it would never reach the value tag");
+            }
+            // First among this instance's resolvers: the latest value tag of a name wins, as a tag does.
+            this.resolvers.addFirst(new PendingValueTag(checked, tag));
+            this.changed();
+        }
+        return this;
+    }
+
+    /**
+     * Removes the value tags of a name.
+     *
+     * @return whether there was one
+     */
+    public boolean removeValueTag(@NotNull String name) {
+        Objects.requireNonNull(name, "name cannot be null");
+        synchronized (this) {
+            boolean removed = this.resolvers.removeIf(r -> r instanceof PendingValueTag(String tagName, ValueTag ignored)
+                    && tagName.equals(name));
+            if (removed) {
+                this.changed();
+            }
+            return removed;
+        }
+    }
+
+    /**
+     * Sets a constant, as {@link Builder#constant(String, String)}: formatted text that never changes.
+     */
+    public @NotNull MiniMessageFlow constant(@NotNull String key, @NotNull String text) {
+        return this.putConstant(key, Objects.requireNonNull(text, "text cannot be null"));
+    }
+
+    public @NotNull MiniMessageFlow constant(@NotNull String key, @NotNull net.kyori.adventure.text.ComponentLike component) {
+        return this.putConstant(key, component.asComponent());
+    }
+
+    private @NotNull MiniMessageFlow putConstant(@NotNull String key, @NotNull Object value) {
+        Objects.requireNonNull(key, "key cannot be null");
+        synchronized (this) {
+            this.constants.put(key, value);
+            this.changed();
+        }
+        return this;
+    }
+
+    /**
+     * Removes a constant.
+     *
+     * @return whether there was one
+     */
+    public boolean removeConstant(@NotNull String key) {
+        Objects.requireNonNull(key, "key cannot be null");
+        synchronized (this) {
+            boolean removed = this.constants.remove(key) != null;
+            if (removed) {
+                this.changed();
+            }
+            return removed;
+        }
     }
 
     /**
@@ -96,7 +386,20 @@ public final class MiniMessageFlow {
      */
     public @NotNull Template compile(@NotNull String message) {
         Objects.requireNonNull(message, "message cannot be null");
-        return this.engine.compile(message);
+        return new LiveTemplate(this.source, message);
+    }
+
+    /**
+     * Compiles lines (an item's lore, a help page from a configuration's list), rendered as a list of components.
+     * See {@link TemplateList}. Not cached here: keep it.
+     */
+    public @NotNull TemplateList compileList(@NotNull List<String> lines) {
+        Objects.requireNonNull(lines, "lines cannot be null");
+        List<Template> templates = new ArrayList<>(lines.size());
+        for (String line : lines) {
+            templates.add(this.compile(Objects.requireNonNull(line, "a line cannot be null")));
+        }
+        return TemplateList.of(templates);
     }
 
     /**
@@ -105,7 +408,7 @@ public final class MiniMessageFlow {
      */
     public @NotNull TextTemplate compileText(@NotNull String text) {
         Objects.requireNonNull(text, "text cannot be null");
-        return this.engine.compileText(text);
+        return new LiveText(this.source, text);
     }
 
     /**
@@ -153,7 +456,7 @@ public final class MiniMessageFlow {
     public @NotNull Component format(@NotNull String message, @NotNull Placeholder placeholders, @Nullable Pointered viewer) {
         Objects.requireNonNull(message, "message cannot be null");
         Objects.requireNonNull(placeholders, "placeholders cannot be null");
-        return this.templates.get(message, this.engine::compile).render(placeholders, viewer);
+        return this.templates.get(message, this::compile).render(placeholders, viewer);
     }
 
     public @NotNull Component format(@NotNull String message, @NotNull Placeholder placeholders) {
@@ -166,7 +469,7 @@ public final class MiniMessageFlow {
     public @NotNull Component format(@NotNull String message, @NotNull Values values, @Nullable Pointered viewer) {
         Objects.requireNonNull(message, "message cannot be null");
         Objects.requireNonNull(values, "values cannot be null");
-        return this.templates.get(message, this.engine::compile).render(values, viewer);
+        return this.templates.get(message, this::compile).render(values, viewer);
     }
 
     public @NotNull Component format(@NotNull String message, @NotNull Values values) {
@@ -194,7 +497,10 @@ public final class MiniMessageFlow {
      */
     public void clearCache() {
         this.templates.clear();
-        this.engine.clearCache();
+        Engine engine = this.engine;
+        if (engine != null) {
+            engine.clearCache();
+        }
     }
 
     /**
@@ -339,15 +645,20 @@ public final class MiniMessageFlow {
          * @throws IllegalArgumentException for another name, checked when the instance is built for the tags'
          */
         public @NotNull Builder valueTag(@NotNull String name, @NotNull ValueTag tag) {
-            String checked = tagName(name);
-            if (StandardTags.defaults().has(checked)) {
-                throw new IllegalArgumentException("'" + checked + "' is a standard tag: <" + checked + "> would never reach the value tag");
-            }
+            String checked = valueTagName(name);
             this.resolvers.add(new PendingValueTag(checked, Objects.requireNonNull(tag, "tag cannot be null")));
             return this;
         }
 
-        private static @NotNull String tagName(@NotNull String name) {
+        static @NotNull String valueTagName(@NotNull String name) {
+            String checked = tagName(name);
+            if (StandardTags.defaults().has(checked)) {
+                throw new IllegalArgumentException("'" + checked + "' is a standard tag: <" + checked + "> would never reach the value tag");
+            }
+            return checked;
+        }
+
+        static @NotNull String tagName(@NotNull String name) {
             Objects.requireNonNull(name, "name cannot be null");
             if (name.isEmpty() || !name.chars().allMatch(c -> c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '_' || c == '-')) {
                 throw new IllegalArgumentException("a tag's name is lower-case letters, digits, '_' and '-': '" + name + "'");

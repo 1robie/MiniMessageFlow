@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.5.0
+
+- Changes after build: `MiniMessageFlow.tag(name, Tag)`, `tags(TagResolver)`, `resolver(...)`, `valueTag(...)`,
+  `constant(...)` and their `remove...` add to an instance and remove from it at any time, thread-safe. Every
+  template it compiled, before or after (`compile`, `format`, `compileAll`, `compileText`, the translator's), uses
+  them from its next render: it compiles its message again once. Several changes in a row cost one rebuild, made
+  on the next use. A tag cannot take a value tag's name, nor a value tag a tag's.
+- `compileList(List<String>)` → `TemplateList`: lines compiled once (lore, a help page), rendered as a
+  `List<Component>`, each line split at its breaks as `renderLines` does; `send(audience, values)` sends one chat
+  message per line. `placeholders()` of every line, `isStatic()`.
+- README: a "Which one to use" table, and how to add to an instance after build.
+
 ## 1.4.0
 
 - `raw` modifier: `%nick.raw%`, `<nick:raw>`, `<papi:x:raw>`, `%nick.max:16.raw%` place the value as plain text,
