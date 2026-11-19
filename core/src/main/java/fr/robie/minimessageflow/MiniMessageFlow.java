@@ -77,6 +77,7 @@ public final class MiniMessageFlow {
     private volatile @Nullable Engine engine;
     private final EngineSource source = this::engine;
     private final Cache<String, Template> templates;
+    private final Cache<String, TextTemplate> texts;
     private final ValueKeys keys;
     /**
      * How the number modifiers read numbers, and so how {@link Values} writes a {@code double}.
@@ -96,6 +97,7 @@ public final class MiniMessageFlow {
         this.resolvers.addAll(builder.resolvers);
         this.constants.putAll(builder.constants);
         this.templates = builder.caches.create(CacheFactory.Kind.TEMPLATES, builder.templateCacheSize);
+        this.texts = builder.caches.create(CacheFactory.Kind.TEXT_TEMPLATES, builder.templateCacheSize);
         TagResolver visible = this.visibleTags();
         for (Resolver resolver : this.resolvers) {
             if (resolver instanceof PendingValueTag(String name, ValueTag ignored) && visible != null && visible.has(name)) {
@@ -187,6 +189,7 @@ public final class MiniMessageFlow {
     private void changed() {
         this.engine = null;
         this.templates.clear();
+        this.texts.clear();
     }
 
     /**
@@ -483,6 +486,52 @@ public final class MiniMessageFlow {
     }
 
     /**
+     * Formats a text rendered as a {@code String} (a command, an amount, a URL), compiling it the first time, as
+     * {@link #compileText} does (cache bounded by {@link Builder#templateCacheSize}): only its {@code %key%}
+     * placeholders are read, every value placed as written. What a string placeholder parser's {@code parse}
+     * gave, without scanning the text at each call.
+     */
+    public @NotNull String formatText(@NotNull String text, @NotNull Values values, @Nullable Pointered viewer) {
+        Objects.requireNonNull(text, "text cannot be null");
+        Objects.requireNonNull(values, "values cannot be null");
+        return this.texts.get(text, this::compileText).render(values, viewer);
+    }
+
+    public @NotNull String formatText(@NotNull String text, @NotNull Placeholder placeholders, @Nullable Pointered viewer) {
+        Objects.requireNonNull(text, "text cannot be null");
+        Objects.requireNonNull(placeholders, "placeholders cannot be null");
+        return this.texts.get(text, this::compileText).render(placeholders, viewer);
+    }
+
+    public @NotNull String formatText(@NotNull String text, @NotNull Placeholder placeholders) {
+        return this.formatText(text, placeholders, null);
+    }
+
+    /**
+     * Formats lines (an item's lore), each compiled the first time as {@link #format} does, each split at its line
+     * breaks ({@link Template#renderLines}). For lines kept and rendered again and again, {@link #compileList} once.
+     */
+    public @NotNull List<Component> formatLines(@NotNull List<String> lines, @NotNull Values values, @Nullable Pointered viewer) {
+        Objects.requireNonNull(lines, "lines cannot be null");
+        Objects.requireNonNull(values, "values cannot be null");
+        List<Component> out = new ArrayList<>(lines.size());
+        for (String line : lines) {
+            out.addAll(this.templates.get(line, this::compile).renderLines(values, viewer));
+        }
+        return out;
+    }
+
+    public @NotNull List<Component> formatLines(@NotNull List<String> lines, @NotNull Placeholder placeholders, @Nullable Pointered viewer) {
+        Objects.requireNonNull(lines, "lines cannot be null");
+        Objects.requireNonNull(placeholders, "placeholders cannot be null");
+        List<Component> out = new ArrayList<>(lines.size());
+        for (String line : lines) {
+            out.addAll(this.templates.get(line, this::compile).renderLines(placeholders, viewer));
+        }
+        return out;
+    }
+
+    /**
      * As {@link #format}, as plain text without colours or events: for a console or a log.
      */
     public @NotNull String formatPlain(@NotNull String message, @NotNull Placeholder placeholders, @Nullable Pointered viewer) {
@@ -499,6 +548,7 @@ public final class MiniMessageFlow {
      */
     public void clearCache() {
         this.templates.clear();
+        this.texts.clear();
         Engine engine = this.engine;
         if (engine != null) {
             engine.clearCache();

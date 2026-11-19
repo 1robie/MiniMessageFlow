@@ -139,6 +139,27 @@ class PlaceholderApiTest {
     }
 
     @Test
+    @DisplayName("By default, PlaceholderAPI is asked off the main thread too (an async menu open)")
+    void offMainThreadByDefault() {
+        MiniMessageFlow flow = this.flow(PlaceholderApi.builder(), false);
+        assertEquals("1234567", this.plain(flow, "%vault_eco_balance%", this.steve));
+        assertTrue(this.logs.isEmpty());
+    }
+
+    @Test
+    @DisplayName("A value of the call wins over PlaceholderAPI, and its text is never given to PlaceholderAPI")
+    void valuesFirst() {
+        MiniMessageFlow flow = this.flow(PlaceholderApi.builder(), true);
+        fr.robie.minimessageflow.Values values = flow.newValues()
+                .set("vault_eco_balance", "42")
+                .set("input", "%vault_eco_balance% %player_name%");
+        assertEquals("42 | %vault_eco_balance% %player_name% | Steve", PLAIN.serialize(
+                flow.format("%vault_eco_balance% | %input% | %player_name%", values, this.steve)));
+        assertEquals(List.of("%player_name%"), this.api.asked, "only the placeholder without a value of the call");
+        assertEquals("/pay 42 Steve", flow.formatText("/pay %vault_eco_balance% %player_name%", values, this.steve));
+    }
+
+    @Test
     @DisplayName("mainThreadOnly: off the main thread, shown as written and warned once; on it, asked")
     void mainThreadOnly() {
         MiniMessageFlow off = this.flow(PlaceholderApi.builder().mainThreadOnly(true), false);

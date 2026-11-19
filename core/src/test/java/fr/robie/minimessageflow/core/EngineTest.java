@@ -361,7 +361,8 @@ class EngineTest {
         assertEquals(java.util.Map.of(fr.robie.minimessageflow.cache.CacheFactory.Kind.TEMPLATES, 7,
                 fr.robie.minimessageflow.cache.CacheFactory.Kind.RESOLVER_TEXTS, 9,
                 fr.robie.minimessageflow.cache.CacheFactory.Kind.PARSED_WITH_VALUES, 9,
-                fr.robie.minimessageflow.cache.CacheFactory.Kind.INLINE_TEXTS, 9), sizes);
+                fr.robie.minimessageflow.cache.CacheFactory.Kind.INLINE_TEXTS, 9,
+                fr.robie.minimessageflow.cache.CacheFactory.Kind.TEXT_TEMPLATES, 7), sizes);
         assertEquals("Hi G", PLAIN.serialize(flow.format("Hi %g%")));
         int afterFirst = loads.get(); // the text compiled, the resolver text parsed
         assertEquals("Hi G", PLAIN.serialize(flow.format("Hi %g%")));

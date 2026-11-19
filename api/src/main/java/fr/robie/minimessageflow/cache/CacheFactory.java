@@ -28,7 +28,11 @@ public interface CacheFactory {
         /**
          * Texts with values written into tag arguments, compiled ({@code valueCacheSize}).
          */
-        INLINE_TEXTS
+        INLINE_TEXTS,
+        /**
+         * Texts given to {@code formatText}, compiled as {@code TextTemplate}s ({@code templateCacheSize}).
+         */
+        TEXT_TEMPLATES
     }
 
     /**
