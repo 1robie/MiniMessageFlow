@@ -130,6 +130,20 @@ class ValuesLayersTest {
     }
 
     @Test
+    @DisplayName("Two instances built on the same keys share their ValueKeys and Values")
+    void sharedKeys() {
+        MiniMessageFlow first = MiniMessageFlow.builder().build();
+        ValueKey name = first.key("name");
+        Values values = first.newValues().set(name, "Steve");
+        MiniMessageFlow second = MiniMessageFlow.builder().keys(first.keys()).tag("x", net.kyori.adventure.text.minimessage.tag.Tag.preProcessParsed("<red>")).build();
+        assertSame(first.keys(), second.keys());
+        assertSame(name, second.key("name"));
+        assertEquals("Steve", PLAIN.serialize(second.compile("<x>%name%").render(values, null)));
+        ValueKey late = MiniMessageFlow.builder().keys(first.keys()).key("late");
+        assertSame(late, first.key("late"));
+    }
+
+    @Test
     @DisplayName("toPlaceholder copies every layer, this one's first, and keeps the kinds")
     void snapshot() {
         MiniMessageFlow.Builder builder = MiniMessageFlow.builder();

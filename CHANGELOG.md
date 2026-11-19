@@ -14,6 +14,8 @@
   read per layer. `toPlaceholder()` copies every layer, for another thread.
 - Keys after build: `MiniMessageFlow.key(name)` (and `ValueKeys.add`, `builder.key` after `build()`) declares a key
   later, thread-safe; `Values` made before grow when it is set. A message compiled before the key reads it by name.
+- `builder.keys(ValueKeys)` and `MiniMessageFlow.keys()`: an instance built on another's keys accepts its
+  `ValueKey`s and `Values`, so a plugin that rebuilds its instance on reload keeps the `Values` it made.
 - Prefix lookups: `values.lookup(prefix, rest -> text)` and `lookupFormatted` give the value of any key starting with
   the prefix that has no value (`%state_count%`), asked at each render, modifiers applied, through layers.
 - `MiniMessageFlow.compileText(text)` → `TextTemplate`: a command, an amount, a URL with `%key%` placeholders, rendered

@@ -49,7 +49,7 @@ public final class MiniMessageFlow {
     private final NumberStyle numberStyle;
 
     private MiniMessageFlow(@NotNull Builder builder) {
-        this.keys = builder.keys.build();
+        this.keys = builder.builtKeys();
         ModifierSet modifiers = builder.modifiers.build();
         this.numberStyle = modifiers.numberStyle();
         TagResolver tags = builder.tags.isEmpty() ? null
@@ -76,7 +76,7 @@ public final class MiniMessageFlow {
         }
         this.engine = new Engine(builder.legacyCodes, resolvers, tags, builder.valueCacheSize,
                 builder.nativeCompiler, builder.verifyNative, builder.caches, builder.errors, modifiers,
-                builder.bareHexColors, builder.keys.build(), builder.constants);
+                builder.bareHexColors, this.keys, builder.constants);
         this.templates = builder.caches.create(CacheFactory.Kind.TEMPLATES, builder.templateCacheSize);
     }
 
@@ -114,6 +114,14 @@ public final class MiniMessageFlow {
      */
     public @NotNull Values newValues() {
         return this.keys.newValues(this.numberStyle);
+    }
+
+    /**
+     * The keys of this instance: give them to {@link Builder#keys} to build another instance its {@link Values} work
+     * with.
+     */
+    public @NotNull ValueKeys keys() {
+        return this.keys;
     }
 
     /**
@@ -241,6 +249,7 @@ public final class MiniMessageFlow {
         private @Nullable BiConsumer<String, Throwable> errors;
         private final ModifierSet.Builder modifiers = ModifierSet.builder();
         private final ValueKeys.Builder keys = ValueKeys.builder();
+        private @Nullable ValueKeys sharedKeys;
         private final Map<String, Object> constants = new LinkedHashMap<>();
         private boolean bareHexColors = true;
 
@@ -437,7 +446,25 @@ public final class MiniMessageFlow {
          * @param name the placeholder's name, without {@code %} or modifiers
          */
         public @NotNull ValueKey key(@NotNull String name) {
-            return this.keys.key(name);
+            return this.sharedKeys != null ? this.sharedKeys.add(name) : this.keys.key(name);
+        }
+
+        /**
+         * Builds the instance on keys that already exist, those of another instance ({@code other.keys()}) or made
+         * with {@code ValueKeys.builder().build()}, instead of new ones. Instances on the same keys accept each
+         * other's {@link ValueKey}s and {@link Values}: a plugin that builds a new instance at each reload (new tags,
+         * a new number style) keeps the keys and the {@code Values} it made before. Keys declared on this builder
+         * are added to them.
+         *
+         * @param keys the keys, which can still be added to
+         */
+        public @NotNull Builder keys(@NotNull ValueKeys keys) {
+            this.sharedKeys = Objects.requireNonNull(keys, "keys cannot be null");
+            return this;
+        }
+
+        @NotNull ValueKeys builtKeys() {
+            return this.sharedKeys != null ? this.sharedKeys : this.keys.build();
         }
 
         private static int positive(int size) {
