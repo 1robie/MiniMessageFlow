@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.4.0
 
 - `raw` modifier: `%nick.raw%`, `<nick:raw>`, `<papi:x:raw>`, `%nick.max:16.raw%` place the value as plain text,
   never read as tags or colour codes, whatever its source (a resolver's text, a value tag, formatted text, a

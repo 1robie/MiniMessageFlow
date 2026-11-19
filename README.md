@@ -5,7 +5,7 @@ colour codes (`&c`, `§c`, `&#rrggbb`, `#rrggbb`) and placeholders written `%nam
 once and renders it in nanoseconds. It runs on Adventure 4.17 (Paper 1.20.6) to 5.x (Minecraft 26), and has no
 dependency besides Adventure.
 
-It is the formatting engine of MessageFlow 1.2, tested on Paper 1.20.6, 1.21 and 26. Version 1.3.0
+It is the formatting engine of MessageFlow 1.2, tested on Paper 1.20.6, 1.21 and 26. Version 1.4.0
 ([changelog](CHANGELOG.md)).
 
 ## Install
@@ -20,9 +20,9 @@ repositories {
     maven("https://jitpack.io")
 }
 dependencies {
-    implementation("com.github.1robie.MiniMessageFlow:MiniMessageFlow:1.3.0")
+    implementation("com.github.1robie.MiniMessageFlow:MiniMessageFlow:1.4.0")
     // or, on Paper:
-    // implementation("com.github.1robie.MiniMessageFlow:paper-minimessageflow:1.3.0")
+    // implementation("com.github.1robie.MiniMessageFlow:paper-minimessageflow:1.4.0")
 }
 // Shade it into your plugin and relocate it (shadow plugin):
 tasks.shadowJar {
@@ -40,7 +40,7 @@ tasks.shadowJar {
 <dependency>
     <groupId>com.github.1robie.MiniMessageFlow</groupId>
     <artifactId>MiniMessageFlow</artifactId> <!-- or paper-minimessageflow -->
-    <version>1.3.0</version>
+    <version>1.4.0</version>
 </dependency>
 <!-- maven-shade-plugin: <relocation><pattern>fr.robie.minimessageflow</pattern>
      <shadedPattern>your.plugin.libs.minimessageflow</shadedPattern></relocation> -->
