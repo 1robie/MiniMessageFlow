@@ -29,17 +29,22 @@ import java.util.function.Supplier;
  * values, then each slot's). Setting a value sets it in this layer only; {@link #parent()} and {@link #root()} reach
  * the others. A lookup is one array read per layer, nothing is hashed.
  * <p>
+ * <strong>By name</strong>: {@link #set(String, String)} and the other {@code set} by name declare the key the first
+ * time they see it, for names known only at runtime; {@link #get(String)} reads a name through the layers.
+ * <p>
  * <strong>Kinds</strong>: {@link #set(ValueKey, String)} is plain text, never read as MiniMessage or legacy codes
  * (what a player typed); {@link #setFormatted} is formatted text, read as a resolver's (what a configuration
  * holds); a component is inserted with its own style.
  * <p>
  * <strong>Mutable and not thread-safe</strong>: one per thread, or per task that renders, layers included. A value
  * stays set until it is set again, {@link #unset} or {@link #clear}ed: when the next send may lack a value the last
- * one had, clear first. To hand the values to another thread, take a {@link #toPlaceholder()} copy.
+ * one had, clear first. To hand the values to another thread, give it a {@link #copy()}, which it then owns.
  */
 public final class Values {
 
     private static final long[] NO_BITS = new long[0];
+    private static final net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer PLAIN =
+            net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer.plainText();
 
     private final ValueKeys keys;
     private final @Nullable Values parent;
@@ -192,6 +197,73 @@ public final class Values {
         this.values[index] = Objects.requireNonNull(value, "value cannot be null");
         this.formatted(index, false);
         return this;
+    }
+
+    // --- by name ------------------------------------------------------------------------------------------------
+
+    /**
+     * Sets a plain text value by the key's name, declaring the key the first time it is seen
+     * ({@code MiniMessageFlow.key(name)}): for names known only at runtime (a menu's inputs, a command's arguments).
+     * A render still reads it by its place; a template compiled before the key existed reads it by its name.
+     * Keys are never removed: for names that come and go without end, use {@link #lookup} instead. Thread-safe as
+     * far as the keys go; these values stay one thread's.
+     *
+     * @throws IllegalArgumentException when no placeholder can have this name (whitespace, or one of
+     *                                  {@code % < > & § \ ' " #})
+     */
+    public @NotNull Values set(@NotNull String name, @Nullable String value) {
+        return this.set(this.keys.add(name), value);
+    }
+
+    /**
+     * As {@link #setFormatted(ValueKey, String)}, by the key's name (see {@link #set(String, String)}).
+     */
+    public @NotNull Values setFormatted(@NotNull String name, @Nullable String text) {
+        return this.setFormatted(this.keys.add(name), text);
+    }
+
+    /**
+     * As {@link #set(ValueKey, long)}, by the key's name (see {@link #set(String, String)}).
+     */
+    public @NotNull Values set(@NotNull String name, long value) {
+        return this.set(this.keys.add(name), value);
+    }
+
+    /**
+     * As {@link #set(ValueKey, double)}, by the key's name (see {@link #set(String, String)}).
+     */
+    public @NotNull Values set(@NotNull String name, double value) {
+        return this.set(this.keys.add(name), value);
+    }
+
+    /**
+     * As {@link #set(ValueKey, ComponentLike)}, by the key's name (see {@link #set(String, String)}).
+     */
+    public @NotNull Values set(@NotNull String name, @Nullable ComponentLike value) {
+        return this.set(this.keys.add(name), value);
+    }
+
+    /**
+     * As {@link #set(ValueKey, PlaceholderValue)}, by the key's name (see {@link #set(String, String)}).
+     */
+    public @NotNull Values set(@NotNull String name, @NotNull PlaceholderValue value) {
+        return this.set(this.keys.add(name), value);
+    }
+
+    /**
+     * Removes this layer's value of a name; a name never declared has none, and is not declared by this.
+     */
+    public @NotNull Values unset(@NotNull String name) {
+        ValueKey key = this.keys.get(Objects.requireNonNull(name, "name cannot be null"));
+        return key == null ? this : this.unset(key);
+    }
+
+    /**
+     * Whether this layer has a value of a name (a parent's is not counted).
+     */
+    public boolean isSet(@NotNull String name) {
+        ValueKey key = this.keys.get(Objects.requireNonNull(name, "name cannot be null"));
+        return key != null && this.isSet(key);
     }
 
     /**
@@ -396,6 +468,132 @@ public final class Values {
             }
         }
         return null;
+    }
+
+    // --- reading and copying ------------------------------------------------------------------------------------
+
+    /**
+     * The text of a name as a render would find it among these values: this layer, then each parent, then the
+     * prefix lookups of each layer, this one's first. Modifiers don't apply ({@code price.comma} is a name of its
+     * own). A component gives its plain text, a computed value is asked without a viewer; formatted text is given as
+     * written. Null when no layer has a value: the resolvers are not asked.
+     */
+    public @Nullable String get(@NotNull String name) {
+        return this.get(name, null);
+    }
+
+    /**
+     * As {@link #get(String)}, a value computed for the viewer being asked for this one.
+     */
+    public @Nullable String get(@NotNull String name, @Nullable Pointered viewer) {
+        Objects.requireNonNull(name, "name cannot be null");
+        int index = this.keys.indexOf(name);
+        if (index >= 0) {
+            Values layer = this.holder(index);
+            if (layer != null) {
+                return text(layer.values[index], viewer);
+            }
+        }
+        for (Values layer = this; layer != null; layer = layer.parent) {
+            for (int i = 0; i < layer.lookupPrefixes.length; i++) {
+                String prefix = layer.lookupPrefixes[i];
+                if (name.startsWith(prefix)) {
+                    String found = layer.lookupFunctions[i].apply(name.substring(prefix.length()));
+                    if (found != null) {
+                        return found;
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * The text of a value; null when a computed value throws (a render would show the placeholder as written).
+     */
+    private static @Nullable String text(@NotNull Object value, @Nullable Pointered viewer) {
+        try {
+            return switch (value) {
+                case String text -> text;
+                case Component component -> PLAIN.serialize(component);
+                case PlaceholderValue computed -> computed.isComponent() ? PLAIN.serialize(computed.asComponent(viewer))
+                        : computed.evaluate(viewer);
+                default -> String.valueOf(value);
+            };
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /**
+     * Copies the values and lookups of another layer (that layer only, not its parents) into this one, replacing
+     * those of the same names and prefixes.
+     *
+     * @throws IllegalArgumentException when the other values are for other keys (another {@code MiniMessageFlow})
+     */
+    public @NotNull Values merge(@NotNull Values other) {
+        if (Objects.requireNonNull(other, "other cannot be null").keys != this.keys) {
+            throw new IllegalArgumentException("these values were made by another MiniMessageFlow");
+        }
+        Object[] from = other.values;
+        for (int i = 0; i < from.length; i++) {
+            if (from[i] != null) {
+                if (i >= this.values.length) {
+                    this.values = Arrays.copyOf(this.values, this.keys.size());
+                }
+                this.values[i] = from[i];
+                this.formatted(i, other.isFormatted(i));
+            }
+        }
+        for (int i = 0; i < other.lookupPrefixes.length; i++) {
+            this.addLookup(other.lookupPrefixes[i], other.lookupFunctions[i], other.lookupFormatted[i]);
+        }
+        return this;
+    }
+
+    /**
+     * Every value these values see, by name, as {@link #get} gives it: the parents' and this layer's, the nearest
+     * winning. Prefix lookups can't be listed and are left out. A new map, in the order the keys were declared.
+     */
+    public @NotNull java.util.Map<String, String> flatten() {
+        int size = this.keys.size();
+        java.util.Map<String, String> flat = new java.util.LinkedHashMap<>();
+        for (int i = 0; i < size; i++) {
+            Values layer = this.holder(i);
+            String text = layer == null ? null : text(layer.values[i], null);
+            if (text != null) {
+                flat.put(this.keys.nameAt(i), text);
+            }
+        }
+        return flat;
+    }
+
+    /**
+     * New values without a parent holding everything these see: each key's nearest value (its kind kept) and every
+     * layer's lookups, this layer's first, a prefix kept once. Changing either afterwards does not change the other:
+     * a snapshot to hand to another thread, which then owns it.
+     */
+    public @NotNull Values copy() {
+        Values copy = new Values(this.keys, null, this.numberStyle);
+        int size = this.keys.size();
+        if (copy.values.length < size) {
+            copy.values = new Object[size];
+        }
+        for (int i = 0; i < size; i++) {
+            Values layer = this.holder(i);
+            if (layer != null) {
+                copy.values[i] = layer.values[i];
+                copy.formatted(i, layer.isFormatted(i));
+            }
+        }
+        for (Values layer = this; layer != null; layer = layer.parent) {
+            for (int i = 0; i < layer.lookupPrefixes.length; i++) {
+                if (!Arrays.asList(copy.lookupPrefixes).contains(layer.lookupPrefixes[i])) {
+                    copy.addLookup(layer.lookupPrefixes[i], layer.lookupFunctions[i], layer.lookupFormatted[i]);
+                }
+            }
+        }
+        return copy;
     }
 
     /**
