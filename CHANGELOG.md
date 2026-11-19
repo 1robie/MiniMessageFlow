@@ -10,7 +10,18 @@
 - `compileList(List<String>)` → `TemplateList`: lines compiled once (lore, a help page), rendered as a
   `List<Component>`, each line split at its breaks as `renderLines` does; `send(audience, values)` sends one chat
   message per line. `placeholders()` of every line, `isStatic()`.
-- README: a "Which one to use" table, and how to add to an instance after build.
+- `Values` by name: `set("page", 3)`, `setFormatted`, `unset`, `isSet` declare a key the first time they see it,
+  for names known only at runtime; a render still reads it by its place (by its name for a template compiled
+  before). `get(name)` reads a name's text through the layers and lookups; `merge(other)` copies another layer;
+  `flatten()`; `copy()` makes a root holding everything a layer sees, lookups included, for another thread.
+- `formatText(text, values, viewer)` and `formatLines(lines, values, viewer)`: `compileText` and lines through a
+  cache, as `format` does (`CacheFactory.Kind.TEXT_TEMPLATES`, new).
+- `builder.legacyPrefixModifiers(true)`: `%upper_x%`, `%lower_x%`, `%capitalize_x%` (first letter only),
+  `%add_one_x%`, `%remove_one_x%`, read when compiled; a value for the prefixed name itself wins.
+- `builder.failedModifier(FailedModifier.EMPTY)`: a value whose modifiers don't apply gives the empty text instead
+  of the placeholder as written. A placeholder without a value stays as written either way.
+- README: a "Which one to use" table, how to add to an instance after build, scopes, and a section for code coming
+  from a string placeholder parser.
 
 ## 1.4.0
 

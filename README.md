@@ -134,6 +134,10 @@ Component once = text.format("<red>Hello %name%", Placeholder.of("name", "Steve"
 | A value with arguments, per viewer | `valueTag` | `valueTag("stat", (args, viewer) -> ...)` → `<stat:kills>` |
 | A style or a fixed piece of text as a tag | `tag` / `tags` | `tag("uwu", Tag.styling(NamedTextColor.LIGHT_PURPLE))` |
 | Keys nobody knows in advance (`%state_*%`) | `values.lookup(prefix, fn)` | `values.lookup("state_", rest -> states.get(rest))` |
+| Names known only at runtime (inputs, arguments) | `values.set("name", v)` | `values.set("page", 3)` declares `page` the first time |
+| A menu's values, then each slot's or list entry's | `values.child()` | `Values entry = menu.child().set("entry", name)` |
+| Values handed to another thread | `values.copy()` | `async(() -> render(snapshot))` with `Values snapshot = values.copy()` |
+| A `String` from a text not kept (a parser's `parse`) | `formatText` | `text.formatText("/warp %name%", values, player)` |
 
 ### Adding to an instance after build
 
@@ -151,6 +155,40 @@ hello.render();                                                 // "Hello Lobby"
 
 text.removeTag("uwu");                                          // and back
 ```
+
+### Scopes: values by name, in layers
+
+`Values` holds a render's values in layers, as a menu needs them: one root per menu open (the player, the page),
+a child per slot or list entry (the entry, its index), read child first. Names can be set without declaring them:
+
+```java
+Values menu = text.newValues().set("player", player.getName()).set("page", 1);
+menu.lookup("canvas_", rest -> states.get(rest));          // %canvas_tab%, any name with this prefix
+
+for (Entry e : entries) {
+    Values entry = menu.child().set("entry", e.name()).set("index", e.index());
+    lines.add(row.render(entry, player));                   // reads entry, then menu, then the lookup
+}
+menu.get("canvas_tab");                                     // a name's text through the layers
+menu.parent(); menu.root();                                 // write a layer up: menu.root().set("page", 2)
+Values snapshot = menu.copy();                              // everything it sees, for another thread
+```
+
+A name set this way is declared once and kept (names a configuration holds; for names without end, a lookup). A
+template compiled before the name existed reads it by name, a little slower; compiled after, by its place.
+
+### Coming from a String placeholder parser
+
+| Before | With MiniMessageFlow |
+|---|---|
+| `placeholders.parse(text)` then `MiniMessage.deserialize` | `text.format(message, values, player)`, or `compile` once and `render` |
+| `placeholders.parse(text)` for a command or a number | `text.formatText(command, values, player)`, or `compileText` once |
+| `placeholders.parse(lines)` for lore | `text.formatLines(lines, values, player)`, or `compileList` once |
+| `placeholders.register(name, value)` | `values.set(name, value)` (plain) / `setFormatted` (with colours) |
+| `placeholders.child()`, `merge`, `get`, `flatten` | `values.child()`, `merge`, `get`, `flatten` |
+| `%upper_name%`, `%remove_one_level%` | `builder.legacyPrefixModifiers(true)` |
+| an unknown or failing modifier gives `""` | `builder.failedModifier(FailedModifier.EMPTY)` |
+| PlaceholderAPI on the parsed text | `PlaceholderApi.builder().applyTo(builder, plugin)`: asked for placeholders without a value of the call, never on a value's text |
 
 ### Reference
 
