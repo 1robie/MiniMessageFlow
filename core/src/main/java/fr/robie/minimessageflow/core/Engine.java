@@ -71,6 +71,17 @@ public final class Engine {
      */
     private static final Component FAILED = Component.text("failed");
     private static final PlainTextComponentSerializer PLAIN = PlainTextComponentSerializer.plainText();
+    /**
+     * The prefixes read as a modifier before the key ({@code %upper_name%}), with {@code legacyPrefixes}.
+     */
+    private static final String[] LEGACY_PREFIXES = {"upper_", "lower_", "capitalize_", "add_one_", "remove_one_"};
+    private static final String[] LEGACY_MODIFIERS = {"upper", "lower", "capitalize", "add_one", "remove_one"};
+    private static final int CAPITALIZE_PREFIX = 2;
+    /**
+     * {@code %capitalize_x%}: the first letter in upper case, the rest as it is (where {@code .capitalize} lowers it).
+     */
+    private static final PlaceholderModifiers.Chain CAPITALIZE_FIRST = PlaceholderModifiers.Chain.of((value, args) ->
+            value.isEmpty() ? value : value.substring(0, 1).toUpperCase(java.util.Locale.ROOT) + value.substring(1));
     private static final String RAW_SUFFIX = "." + PlaceholderModifiers.RAW;
 
     private final boolean legacyCodes;
@@ -79,6 +90,15 @@ public final class Engine {
     private final List<Resolver> resolvers;
     private final @Nullable TagResolver userTags;
     private final TagResolver tags;
+    /**
+     * Whether {@code %upper_x%}, {@code %lower_x%}, {@code %capitalize_x%}, {@code %add_one_x%} and
+     * {@code %remove_one_x%} read {@code x} with that modifier, when {@code upper_x} itself has no value.
+     */
+    private final boolean legacyPrefixes;
+    /**
+     * Whether a value whose modifiers don't apply gives the empty text instead of the placeholder as written.
+     */
+    private final boolean emptyOnFailedModifier;
     private final MiniMessage miniMessage;
     private final MiniMessage templateMiniMessage;
     private final AdventureBridge bridge;
@@ -117,7 +137,10 @@ public final class Engine {
     public Engine(boolean legacyCodes, @NotNull List<Resolver> resolvers, @Nullable TagResolver userTags, int cacheSize,
                   boolean nativeCompiler, boolean verifyNative, @NotNull CacheFactory caches,
                   @NotNull BiConsumer<String, Throwable> errors, @NotNull ModifierSet modifiers, boolean bareHex,
-                  @NotNull ValueKeys keys, @NotNull Map<String, Object> constants) {
+                  @NotNull ValueKeys keys, @NotNull Map<String, Object> constants, boolean legacyPrefixes,
+                  boolean emptyOnFailedModifier) {
+        this.legacyPrefixes = legacyPrefixes;
+        this.emptyOnFailedModifier = emptyOnFailedModifier;
         this.keys = keys;
         this.errors = errors;
         this.modifiers = modifiers;
@@ -733,6 +756,22 @@ public final class Engine {
         for (int dot = key.lastIndexOf('.'); dot > 0; dot = key.lastIndexOf('.', dot - 1)) {
             bases.add(key.substring(0, dot));
             chains.add(this.modifiers.compile(key.substring(dot + 1)));
+        }
+        if (this.legacyPrefixes) {
+            for (int i = 0; i < LEGACY_PREFIXES.length; i++) {
+                String prefix = LEGACY_PREFIXES[i];
+                if (key.length() > prefix.length() && key.startsWith(prefix)) {
+                    bases.add(key.substring(prefix.length()));
+                    chains.add(i == CAPITALIZE_PREFIX ? CAPITALIZE_FIRST : this.modifiers.compile(LEGACY_MODIFIERS[i]));
+                    break;
+                }
+            }
+        }
+        if (this.emptyOnFailedModifier) {
+            for (int i = 0; i < chains.size(); i++) {
+                PlaceholderModifiers.Chain chain = chains.get(i);
+                chains.set(i, chain == null ? PlaceholderModifiers.Chain.alwaysEmpty() : chain.orEmpty());
+            }
         }
         return bases.isEmpty() ? new KeyPlan(key, written, raw, KeyPlan.NO_BASES, KeyPlan.NO_CHAINS, this.keys, this.constants)
                 : new KeyPlan(key, written, raw, bases.toArray(KeyPlan.NO_BASES), chains.toArray(KeyPlan.NO_CHAINS), this.keys,

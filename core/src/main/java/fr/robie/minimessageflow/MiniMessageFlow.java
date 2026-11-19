@@ -54,7 +54,8 @@ public final class MiniMessageFlow {
     private record Settings(boolean legacyCodes, int valueCacheSize, int templateCacheSize, boolean nativeCompiler,
                             boolean verifyNative, @NotNull CacheFactory caches,
                             @NotNull BiConsumer<String, Throwable> errors, @NotNull ModifierSet modifiers,
-                            boolean bareHexColors, @NotNull ValueKeys keys) {
+                            boolean bareHexColors, @NotNull ValueKeys keys, boolean legacyPrefixModifiers,
+                            @NotNull FailedModifier failedModifier) {
     }
 
     /**
@@ -88,7 +89,7 @@ public final class MiniMessageFlow {
         this.numberStyle = modifiers.numberStyle();
         this.settings = new Settings(builder.legacyCodes, builder.valueCacheSize, builder.templateCacheSize,
                 builder.nativeCompiler, builder.verifyNative, builder.caches, Objects.requireNonNull(builder.errors),
-                modifiers, builder.bareHexColors, this.keys);
+                modifiers, builder.bareHexColors, this.keys, builder.legacyPrefixModifiers, builder.failedModifier);
         for (TagResolver tags : builder.tags) {
             this.tags.add(new TagEntry(null, tags));
         }
@@ -133,7 +134,8 @@ public final class MiniMessageFlow {
         this.collectConstants(constants);
         Settings s = this.settings;
         return new Engine(s.legacyCodes(), resolvers, tags, s.valueCacheSize(), s.nativeCompiler(),
-                s.verifyNative(), s.caches(), s.errors(), s.modifiers(), s.bareHexColors(), s.keys(), constants);
+                s.verifyNative(), s.caches(), s.errors(), s.modifiers(), s.bareHexColors(), s.keys(), constants,
+                s.legacyPrefixModifiers(), s.failedModifier() == FailedModifier.EMPTY);
     }
 
     /**
@@ -559,6 +561,8 @@ public final class MiniMessageFlow {
         private boolean declaredOwnKeys;
         private final Map<String, Object> constants = new LinkedHashMap<>();
         private boolean bareHexColors = true;
+        private boolean legacyPrefixModifiers;
+        private FailedModifier failedModifier = FailedModifier.WRITTEN;
 
         private Builder() {
         }
@@ -577,6 +581,26 @@ public final class MiniMessageFlow {
          * With false, {@code Issue #123456} keeps its number; {@code &#rrggbb} and {@code <#rrggbb>} are still
          * colours.
          */
+        /**
+         * Whether {@code %upper_x%}, {@code %lower_x%}, {@code %capitalize_x%} (first letter only),
+         * {@code %add_one_x%} and {@code %remove_one_x%} read {@code x} with that modifier, as older placeholder
+         * parsers did. A value set for {@code upper_x} itself is read first. Default: false. Read when a message is
+         * compiled: a render pays nothing for it.
+         */
+        public @NotNull Builder legacyPrefixModifiers(boolean legacyPrefixModifiers) {
+            this.legacyPrefixModifiers = legacyPrefixModifiers;
+            return this;
+        }
+
+        /**
+         * What a placeholder with a value gives when its modifiers don't apply: as written (the default), or the
+         * empty text. See {@link FailedModifier}.
+         */
+        public @NotNull Builder failedModifier(@NotNull FailedModifier failedModifier) {
+            this.failedModifier = Objects.requireNonNull(failedModifier, "failedModifier cannot be null");
+            return this;
+        }
+
         public @NotNull Builder bareHexColors(boolean bareHexColors) {
             this.bareHexColors = bareHexColors;
             return this;

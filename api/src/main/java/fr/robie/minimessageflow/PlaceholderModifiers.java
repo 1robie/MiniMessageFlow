@@ -340,10 +340,46 @@ public final class PlaceholderModifiers {
         private final Modifier[] modifiers;
         private final String[][] arguments;
 
+        /**
+         * Whether a modifier that fails gives the empty text instead of null.
+         */
+        private final boolean empty;
+
         private Chain(@NotNull Modifier @NotNull [] modifiers, @NotNull String @NotNull [] @NotNull [] arguments) {
+            this(modifiers, arguments, false);
+        }
+
+        private Chain(@NotNull Modifier @NotNull [] modifiers, @NotNull String @NotNull [] @NotNull [] arguments, boolean empty) {
             this.modifiers = modifiers;
             this.arguments = arguments;
+            this.empty = empty;
         }
+
+        /**
+         * A chain of one modifier without arguments. For the engine.
+         */
+        @org.jetbrains.annotations.ApiStatus.Internal
+        public static @NotNull Chain of(@NotNull Modifier modifier) {
+            return new Chain(new Modifier[]{modifier}, new String[][]{NO_ARGS});
+        }
+
+        /**
+         * This chain, giving the empty text where it would give null (a modifier that fails). For the engine.
+         */
+        @org.jetbrains.annotations.ApiStatus.Internal
+        public @NotNull Chain orEmpty() {
+            return this.empty ? this : new Chain(this.modifiers, this.arguments, true);
+        }
+
+        /**
+         * A chain that always gives the empty text: an unknown modifier, read as empty. For the engine.
+         */
+        @org.jetbrains.annotations.ApiStatus.Internal
+        public static @NotNull Chain alwaysEmpty() {
+            return ALWAYS_EMPTY;
+        }
+
+        private static final Chain ALWAYS_EMPTY = new Chain(new Modifier[]{(v, a) -> ""}, new String[][]{NO_ARGS}, true);
 
         /**
          * @return the new value, or null if a modifier fails
@@ -354,10 +390,10 @@ public final class PlaceholderModifiers {
                 try {
                     current = this.modifiers[i].apply(current, this.arguments[i]);
                 } catch (RuntimeException e) {
-                    return null;
+                    return this.empty ? "" : null;
                 }
                 if (current == null) {
-                    return null;
+                    return this.empty ? "" : null;
                 }
             }
             return current;
