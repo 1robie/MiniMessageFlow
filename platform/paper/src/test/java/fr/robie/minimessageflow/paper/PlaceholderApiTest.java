@@ -90,6 +90,66 @@ class PlaceholderApiTest {
     }
 
     @Test
+    @DisplayName("cache: a placeholder is asked once per player within the duration; unknown ones are kept too")
+    void cache() {
+        MiniMessageFlow flow = this.flow(PlaceholderApi.builder().cache(java.time.Duration.ofDays(1)), true);
+        Player alex = Fakes.player("Alex", UUID.randomUUID());
+        for (int i = 0; i < 3; i++) {
+            assertEquals("1234567 Steve", this.plain(flow, "%vault_eco_balance% <papi:player_name>", this.steve));
+            assertEquals("Alex", this.plain(flow, "%player_name%", alex));
+            assertEquals("<papi:other_thing>", this.plain(flow, "<papi:other_thing>", this.steve));
+        }
+        assertEquals(4, this.api.calls.get(), "steve's balance and name, alex's name, the unknown one: each once");
+    }
+
+    @Test
+    @DisplayName("cache: off by default, and off with a zero duration")
+    void noCache() {
+        MiniMessageFlow flow = this.flow(PlaceholderApi.builder(), true);
+        this.plain(flow, "%vault_eco_balance%", this.steve);
+        this.plain(flow, "%vault_eco_balance%", this.steve);
+        assertEquals(2, this.api.calls.get());
+        MiniMessageFlow zero = this.flow(PlaceholderApi.builder().cache(java.time.Duration.ZERO), true);
+        this.plain(zero, "%vault_eco_balance%", this.steve);
+        this.plain(zero, "%vault_eco_balance%", this.steve);
+        assertEquals(4, this.api.calls.get());
+        assertThrows(IllegalArgumentException.class, () -> PlaceholderApi.builder().cacheSize(0));
+    }
+
+    @Test
+    @DisplayName("cache: with mainThreadOnly, a value kept for the window is given off the owning thread")
+    void cacheOffThread() {
+        AtomicBoolean mainThread = new AtomicBoolean(true);
+        MiniMessageFlow.Builder builder = MiniMessageFlow.builder();
+        PlaceholderApi.builder().cache(java.time.Duration.ofDays(1)).mainThreadOnly(true)
+                .applyTo(builder, this.api, player -> mainThread.get(), this.logger);
+        MiniMessageFlow flow = builder.build();
+        assertEquals("1234567", this.plain(flow, "%vault_eco_balance%", this.steve));
+        mainThread.set(false);
+        assertEquals("1234567", this.plain(flow, "%vault_eco_balance%", this.steve));
+        assertEquals("%vault_rank%", this.plain(flow, "%vault_rank%", this.steve), "never asked: shown as written");
+        assertEquals(1, this.api.calls.get());
+    }
+
+    @Test
+    @DisplayName("cache: made by the factory given, with Kind.PLACEHOLDER_VALUES and the size")
+    void cacheFactory() {
+        List<String> made = new ArrayList<>();
+        fr.robie.minimessageflow.cache.CacheFactory factory = new fr.robie.minimessageflow.cache.CacheFactory() {
+            @Override
+            public <K, V> fr.robie.minimessageflow.cache.@NotNull Cache<K, V> create(@NotNull Kind kind, int maximumSize) {
+                made.add(kind + ":" + maximumSize);
+                return GuavaCacheFactory.create().create(kind, maximumSize);
+            }
+        };
+        MiniMessageFlow flow = this.flow(PlaceholderApi.builder().cache(java.time.Duration.ofDays(1)).cacheSize(50).cacheFactory(factory), true);
+        this.plain(flow, "%vault_eco_balance%", this.steve);
+        this.plain(flow, "%vault_eco_balance%", this.steve);
+        assertEquals(List.of("PLACEHOLDER_VALUES:50"), made);
+        assertEquals(1, this.api.calls.get());
+    }
+
+    @Test
     @DisplayName("Keys.ALL: a bare key of a registered expansion; never an unregistered one")
     void bareKeys() {
         MiniMessageFlow flow = this.flow(PlaceholderApi.builder(), true);

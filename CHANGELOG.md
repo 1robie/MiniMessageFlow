@@ -2,6 +2,12 @@
 
 ## 1.5.0
 
+- Paper: `PlaceholderApi.Builder.cache(Duration)`: what PlaceholderAPI gives is kept per player and placeholder for
+  that long (a time window: the same placeholder for the same player is asked once per window, however many renders
+  show it; an unknown placeholder is kept as unknown). With `mainThreadOnly`, a value kept for the window is still
+  given off the owning thread. `cacheSize(int)` (10,000 by default) and `cacheFactory(CacheFactory)` (a bounded map
+  by default; `GuavaCacheFactory`...), with the new `CacheFactory.Kind.PLACEHOLDER_VALUES`. Off by default.
+
 - `Template.style(Style)` and `TemplateList.style(Style)` / `style(line -> style)`: each render gets a style on its
   root, set over the root's own (the text inside keeps its styles): an item's name and lore not italic. While the
   template gives the same render (values unchanged, `rememberRenders`), the styled one is the same instance too, per

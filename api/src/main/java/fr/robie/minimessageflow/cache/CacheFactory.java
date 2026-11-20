@@ -32,7 +32,11 @@ public interface CacheFactory {
         /**
          * Texts given to {@code formatText}, compiled as {@code TextTemplate}s ({@code templateCacheSize}).
          */
-        TEXT_TEMPLATES
+        TEXT_TEMPLATES,
+        /**
+         * Values a placeholder plugin gave, by player, placeholder and time window (Paper's PlaceholderAPI cache).
+         */
+        PLACEHOLDER_VALUES
     }
 
     /**

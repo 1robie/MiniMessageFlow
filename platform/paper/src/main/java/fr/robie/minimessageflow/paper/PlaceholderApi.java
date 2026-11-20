@@ -3,7 +3,8 @@ package fr.robie.minimessageflow.paper;
 import fr.robie.minimessageflow.MiniMessageFlow;
 import fr.robie.minimessageflow.ModifierSet;
 import fr.robie.minimessageflow.Resolver;
-import fr.robie.minimessageflow.ValueTag;
+import fr.robie.minimessageflow.cache.Cache;
+import fr.robie.minimessageflow.cache.CacheFactory;
 import fr.robie.minimessageflow.core.BoundedCache;
 import net.kyori.adventure.pointer.Pointered;
 import org.bukkit.Bukkit;
@@ -13,6 +14,7 @@ import org.bukkit.plugin.Plugin;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
@@ -78,8 +80,46 @@ public final class PlaceholderApi {
         private Keys keys = Keys.ALL;
         private String tagName = "papi";
         private boolean mainThreadOnly;
+        private @Nullable Duration cacheDuration;
+        private int cacheSize = 10_000;
+        private CacheFactory cacheFactory = BOUNDED;
 
         private Builder() {
+        }
+
+        /**
+         * Keeps what PlaceholderAPI gives, per player and placeholder, for a while: within that time the same
+         * placeholder for the same player is asked once, however many renders show it. Off by default (asked at each
+         * render). A value is kept at most this long: the time is cut in windows of this length, and a new window asks
+         * again. A placeholder PlaceholderAPI does not know is kept too (as unknown).
+         *
+         * @param duration how long a value is kept; zero or negative turns the cache off
+         */
+        public @NotNull Builder cache(@NotNull Duration duration) {
+            Objects.requireNonNull(duration, "duration cannot be null");
+            this.cacheDuration = duration.isZero() || duration.isNegative() ? null : duration;
+            return this;
+        }
+
+        /**
+         * How many values the cache keeps at most ({@link #cache}): 10,000 by default.
+         */
+        public @NotNull Builder cacheSize(int cacheSize) {
+            if (cacheSize < 1) {
+                throw new IllegalArgumentException("cacheSize must be at least 1: " + cacheSize);
+            }
+            this.cacheSize = cacheSize;
+            return this;
+        }
+
+        /**
+         * Makes the cache ({@link #cache}), as {@code MiniMessageFlow.Builder.cacheFactory} makes the instance's
+         * (Guava with {@link GuavaCacheFactory}...), with {@link CacheFactory.Kind#PLACEHOLDER_VALUES}. A bounded map by
+         * default.
+         */
+        public @NotNull Builder cacheFactory(@NotNull CacheFactory cacheFactory) {
+            this.cacheFactory = Objects.requireNonNull(cacheFactory, "cacheFactory cannot be null");
+            return this;
         }
 
         /**
@@ -131,7 +171,10 @@ public final class PlaceholderApi {
          */
         void applyTo(@NotNull MiniMessageFlow.Builder flow, @NotNull Hook hook, @NotNull Predicate<@Nullable Player> owner,
                      @NotNull Logger logger) {
-            Asker asker = new Asker(hook, this.mainThreadOnly ? owner : null, logger);
+            Cache<CacheKey, String> cache = this.cacheDuration == null ? null
+                    : this.cacheFactory.create(CacheFactory.Kind.PLACEHOLDER_VALUES, this.cacheSize);
+            long window = this.cacheDuration == null ? 0 : Math.max(1, this.cacheDuration.toNanos());
+            Asker asker = new Asker(hook, this.mainThreadOnly ? owner : null, logger, cache, window);
             flow.valueTag(this.tagName, (arguments, viewer) -> asker.prefixed(arguments, viewer));
             if (this.keys == Keys.ALL) {
                 flow.resolver(asker);
@@ -160,11 +203,19 @@ public final class PlaceholderApi {
          * The text PlaceholderAPI is given for each placeholder ({@code %vault_eco_balance%}), made once.
          */
         private final BoundedCache<String, String> tokens = new BoundedCache<>(256);
+        /**
+         * PlaceholderAPI's values by player, placeholder and time window, or null without a cache.
+         */
+        private final @Nullable Cache<CacheKey, String> cache;
+        private final long window;
 
-        Asker(@NotNull Hook hook, @Nullable Predicate<@Nullable Player> owner, @NotNull Logger logger) {
+        Asker(@NotNull Hook hook, @Nullable Predicate<@Nullable Player> owner, @NotNull Logger logger,
+              @Nullable Cache<CacheKey, String> cache, long window) {
             this.hook = hook;
             this.owner = owner;
             this.logger = logger;
+            this.cache = cache;
+            this.window = window;
         }
 
         /**
@@ -222,7 +273,14 @@ public final class PlaceholderApi {
 
         private @Nullable String ask(@NotNull String placeholder, @Nullable Pointered viewer) {
             Player player = Viewers.player(viewer);
+            CacheKey key = this.cache == null ? null
+                    : new CacheKey(player == null ? null : player.getUniqueId(), placeholder, System.nanoTime() / this.window);
             if (this.owner != null && !this.owner.test(player)) {
+                // Off the owning thread: a value kept for this window is still given.
+                String kept = key == null ? null : this.cache.getIfPresent(key);
+                if (kept != null) {
+                    return kept == UNKNOWN ? null : kept;
+                }
                 if (this.warned.compareAndSet(false, true)) {
                     this.logger.warning("A message with a PlaceholderAPI placeholder (%" + placeholder
                             + "%) was rendered off the thread that owns the player: shown as written (mainThreadOnly)."
@@ -230,10 +288,43 @@ public final class PlaceholderApi {
                 }
                 return null;
             }
+            if (key == null) {
+                return this.askHook(placeholder, player);
+            }
+            String value = this.cache.get(key, k -> {
+                String asked = this.askHook(placeholder, player);
+                return asked == null ? UNKNOWN : asked;
+            });
+            return value == UNKNOWN ? null : value;
+        }
+
+        private @Nullable String askHook(@NotNull String placeholder, @Nullable Player player) {
             String token = this.tokens.get(placeholder, p -> "%" + p + "%");
             String result = this.hook.setPlaceholders(player, token);
             // PlaceholderAPI gives a placeholder it does not know back as it is.
             return token.equals(result) ? null : result;
         }
     }
+
+    /**
+     * Kept for a placeholder PlaceholderAPI does not know: compared by identity.
+     */
+    @SuppressWarnings("StringOperationCanBeSimplified")
+    private static final String UNKNOWN = new String("");
+
+    /**
+     * A cached value's key: the player (null without one), the placeholder, the time window it was asked in.
+     */
+    record CacheKey(@Nullable java.util.UUID player, @NotNull String placeholder, long window) {
+    }
+
+    /**
+     * The cache without a factory given: a bounded map, as the instance's default.
+     */
+    private static final CacheFactory BOUNDED = new CacheFactory() {
+        @Override
+        public <K, V> @NotNull Cache<K, V> create(@NotNull Kind kind, int maximumSize) {
+            return new BoundedCache<>(maximumSize);
+        }
+    };
 }
