@@ -60,7 +60,7 @@ public final class Values {
     /**
      * How {@link #set(ValueKey, double)} writes a decimal: the style the instance's number modifiers read.
      */
-    private final NumberStyle numberStyle;
+    private final java.util.function.Supplier<NumberStyle> numberStyle;
     /**
      * The prefix lookups of this layer, in the order they were added: a key that starts with a prefix and has no
      * value is asked of its function.
@@ -80,7 +80,7 @@ public final class Values {
     private static final Function<String, String>[] NO_FUNCTIONS = new Function[0];
     private static final boolean[] NO_FLAGS = new boolean[0];
 
-    Values(@NotNull ValueKeys keys, @Nullable Values parent, @NotNull NumberStyle numberStyle) {
+    Values(@NotNull ValueKeys keys, @Nullable Values parent, @NotNull java.util.function.Supplier<NumberStyle> numberStyle) {
         this.keys = keys;
         this.parent = parent;
         this.values = new Object[keys.size()];
@@ -158,7 +158,7 @@ public final class Values {
         }
         String text = value == (long) value && Math.abs(value) < 0x1p63 ? Long.toString((long) value)
                 : java.math.BigDecimal.valueOf(value).stripTrailingZeros().toPlainString();
-        return this.set(key, this.numberStyle == NumberStyle.EUROPEAN ? text.replace('.', ',') : text);
+        return this.set(key, this.numberStyle.get() == NumberStyle.EUROPEAN ? text.replace('.', ',') : text);
     }
 
     /**

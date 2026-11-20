@@ -19,6 +19,7 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public final class ValueKeys {
 
+    private static final java.util.function.Supplier<NumberStyle> AUTO_STYLE = () -> NumberStyle.AUTO;
     private static final ValueKeys NONE = new ValueKeys(Map.of(), new Object(), true);
 
     private final Map<String, ValueKey> byName;
@@ -112,7 +113,7 @@ public final class ValueKeys {
      * New values for these keys, all unset; a {@code double} is written in the {@link NumberStyle#AUTO} style.
      */
     public @NotNull Values newValues() {
-        return new Values(this, null, NumberStyle.AUTO);
+        return new Values(this, null, AUTO_STYLE);
     }
 
     /**
@@ -120,6 +121,16 @@ public final class ValueKeys {
      * number style, the one the instance's number modifiers read.
      */
     public @NotNull Values newValues(@NotNull NumberStyle numberStyle) {
+        Objects.requireNonNull(numberStyle, "numberStyle cannot be null");
+        return new Values(this, null, () -> numberStyle);
+    }
+
+    /**
+     * New values writing decimals in the style the source gives at each {@code set}: an instance's, which can change.
+     * For {@code MiniMessageFlow}.
+     */
+    @org.jetbrains.annotations.ApiStatus.Internal
+    public @NotNull Values newValues(@NotNull java.util.function.Supplier<NumberStyle> numberStyle) {
         return new Values(this, null, Objects.requireNonNull(numberStyle, "numberStyle cannot be null"));
     }
 

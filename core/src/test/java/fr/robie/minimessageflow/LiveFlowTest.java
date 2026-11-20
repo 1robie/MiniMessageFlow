@@ -70,6 +70,24 @@ class LiveFlowTest {
     }
 
     @Test
+    @DisplayName("numberStyle changed after build: templates compiled before and Values made before follow it")
+    void numberStyleAfterBuild() {
+        MiniMessageFlow flow = MiniMessageFlow.builder().numberStyle(NumberStyle.ENGLISH).build();
+        Template template = flow.compile("%price.comma% %ratio%");
+        TextTemplate text = flow.compileText("%price.comma%");
+        Values values = flow.newValues().set("price", "1234567").set("ratio", 2.5);
+        assertEquals("1,234,567 2.5", plain(template.render(values)));
+        flow.numberStyle(NumberStyle.EUROPEAN);
+        assertSame(NumberStyle.EUROPEAN, flow.numberStyle());
+        values.set("ratio", 2.5);
+        assertEquals("1.234.567 2,5", plain(template.render(values)));
+        assertEquals("1.234.567", text.render(values, null));
+        assertEquals("1.234.567", flow.formatText("%price.comma%", values, null));
+        Values child = values.child().set("half", 0.5);
+        assertEquals("0,5", child.get("half"));
+    }
+
+    @Test
     @DisplayName("compileList renders every line, a value with a break giving two")
     void list() {
         MiniMessageFlow flow = MiniMessageFlow.create();

@@ -53,7 +53,7 @@ public final class MiniMessageFlow {
      */
     private record Settings(boolean legacyCodes, int valueCacheSize, int templateCacheSize, boolean nativeCompiler,
                             boolean verifyNative, @NotNull CacheFactory caches,
-                            @NotNull BiConsumer<String, Throwable> errors, @NotNull ModifierSet modifiers,
+                            @NotNull BiConsumer<String, Throwable> errors,
                             boolean bareHexColors, @NotNull ValueKeys keys, boolean legacyPrefixModifiers,
                             @NotNull FailedModifier failedModifier) {
     }
@@ -80,17 +80,20 @@ public final class MiniMessageFlow {
     private final Cache<String, TextTemplate> texts;
     private final ValueKeys keys;
     /**
-     * How the number modifiers read numbers, and so how {@link Values} writes a {@code double}.
+     * The modifiers, with the number style they read numbers in ({@link #numberStyle(NumberStyle)} changes it).
      */
-    private final NumberStyle numberStyle;
+    private volatile ModifierSet modifiers;
+    /**
+     * The number style now, for the {@link Values} this instance made: they write a {@code double} in it.
+     */
+    private final java.util.function.Supplier<NumberStyle> numberStyleSource = () -> this.modifiers.numberStyle();
 
     private MiniMessageFlow(@NotNull Builder builder) {
         this.keys = builder.builtKeys();
-        ModifierSet modifiers = builder.modifiers.build();
-        this.numberStyle = modifiers.numberStyle();
+        this.modifiers = builder.modifiers.build();
         this.settings = new Settings(builder.legacyCodes, builder.valueCacheSize, builder.templateCacheSize,
                 builder.nativeCompiler, builder.verifyNative, builder.caches, Objects.requireNonNull(builder.errors),
-                modifiers, builder.bareHexColors, this.keys, builder.legacyPrefixModifiers, builder.failedModifier);
+                builder.bareHexColors, this.keys, builder.legacyPrefixModifiers, builder.failedModifier);
         for (TagResolver tags : builder.tags) {
             this.tags.add(new TagEntry(null, tags));
         }
@@ -136,7 +139,7 @@ public final class MiniMessageFlow {
         this.collectConstants(constants);
         Settings s = this.settings;
         return new Engine(s.legacyCodes(), resolvers, tags, s.valueCacheSize(), s.nativeCompiler(),
-                s.verifyNative(), s.caches(), s.errors(), s.modifiers(), s.bareHexColors(), s.keys(), constants,
+                s.verifyNative(), s.caches(), s.errors(), this.modifiers, s.bareHexColors(), s.keys(), constants,
                 s.legacyPrefixModifiers(), s.failedModifier() == FailedModifier.EMPTY);
     }
 
@@ -172,14 +175,14 @@ public final class MiniMessageFlow {
                 }
             } else {
                 if (!group.isEmpty()) {
-                    out.add(new ValueTagResolver(group, this.settings.modifiers()));
+                    out.add(new ValueTagResolver(group, this.modifiers));
                     group = new LinkedHashMap<>();
                 }
                 out.add(resolver);
             }
         }
         if (!group.isEmpty()) {
-            out.add(new ValueTagResolver(group, this.settings.modifiers()));
+            out.add(new ValueTagResolver(group, this.modifiers));
         }
     }
 
@@ -340,6 +343,30 @@ public final class MiniMessageFlow {
     }
 
     /**
+     * Changes how the number modifiers ({@code comma}, {@code add:n}, {@code 2f}...) read and write numbers, as
+     * {@link Builder#numberStyle} set it: for a configuration read again. The templates compiled before, of this
+     * instance, use it from their next render, and the {@link Values} it made write a {@code double} in it from their
+     * next {@code set}. A text already set keeps its separators until it is set again. Thread-safe.
+     */
+    public @NotNull MiniMessageFlow numberStyle(@NotNull NumberStyle numberStyle) {
+        Objects.requireNonNull(numberStyle, "numberStyle cannot be null");
+        synchronized (this) {
+            if (this.modifiers.numberStyle() != numberStyle) {
+                this.modifiers = this.modifiers.withNumberStyle(numberStyle);
+                this.changed();
+            }
+        }
+        return this;
+    }
+
+    /**
+     * How the number modifiers read and write numbers now.
+     */
+    public @NotNull NumberStyle numberStyle() {
+        return this.modifiers.numberStyle();
+    }
+
+    /**
      * Sets a constant, as {@link Builder#constant(String, String)}: formatted text that never changes.
      */
     public @NotNull MiniMessageFlow constant(@NotNull String key, @NotNull String text) {
@@ -421,7 +448,7 @@ public final class MiniMessageFlow {
      * that renders, set it for each send, and give it to {@link Template#render(Values, Pointered)}.
      */
     public @NotNull Values newValues() {
-        return this.keys.newValues(this.numberStyle);
+        return this.keys.newValues(this.numberStyleSource);
     }
 
     /**

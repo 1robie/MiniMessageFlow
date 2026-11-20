@@ -36,6 +36,17 @@ public final class ModifierSet {
     }
 
     /**
+     * These modifiers with another number style: the same own modifiers, the built-in number modifiers of the style.
+     */
+    public @NotNull ModifierSet withNumberStyle(@NotNull NumberStyle numberStyle) {
+        Objects.requireNonNull(numberStyle, "numberStyle cannot be null");
+        if (numberStyle == this.numberStyle) {
+            return this;
+        }
+        return this.own.isEmpty() && numberStyle == NumberStyle.AUTO ? SHARED : new ModifierSet(this.own, numberStyle);
+    }
+
+    /**
      * Only the shared modifiers of {@link PlaceholderModifiers}.
      */
     public static @NotNull ModifierSet shared() {

@@ -7,6 +7,9 @@
   template it compiled, before or after (`compile`, `format`, `compileAll`, `compileText`, the translator's), uses
   them from its next render: it compiles its message again once. Several changes in a row cost one rebuild, made
   on the next use. A tag cannot take a value tag's name, nor a value tag a tag's.
+- `MiniMessageFlow.numberStyle(NumberStyle)`: the number style changed on the instance, for a configuration read
+  again, without making a new one. Its templates use it from their next render, and the `Values` it made write a
+  `double` in it from their next `set`; a text already set keeps its separators until set again.
 - `compileList(List<String>)` → `TemplateList`: lines compiled once (lore, a help page), rendered as a
   `List<Component>`, each line split at its breaks as `renderLines` does; `send(audience, values)` sends one chat
   message per line. `placeholders()` of every line, `isStatic()`.
