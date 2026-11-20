@@ -80,7 +80,7 @@ public final class PlaceholderApi {
         private Keys keys = Keys.ALL;
         private String tagName = "papi";
         private boolean mainThreadOnly;
-        private @Nullable Duration cacheDuration;
+        private @Nullable java.util.function.Supplier<@Nullable Duration> cacheDuration;
         private int cacheSize = 10_000;
         private CacheFactory cacheFactory = BOUNDED;
 
@@ -97,7 +97,18 @@ public final class PlaceholderApi {
          */
         public @NotNull Builder cache(@NotNull Duration duration) {
             Objects.requireNonNull(duration, "duration cannot be null");
-            this.cacheDuration = duration.isZero() || duration.isNegative() ? null : duration;
+            this.cacheDuration = duration.isZero() || duration.isNegative() ? null : () -> duration;
+            return this;
+        }
+
+        /**
+         * As {@link #cache(Duration)}, the duration read at each value asked: from a configuration reloaded, it applies
+         * at once. A null, zero or negative duration asks PlaceholderAPI without the cache, while it is so.
+         *
+         * @param duration gives how long a value is kept
+         */
+        public @NotNull Builder cache(@NotNull java.util.function.Supplier<@Nullable Duration> duration) {
+            this.cacheDuration = Objects.requireNonNull(duration, "duration cannot be null");
             return this;
         }
 
@@ -173,8 +184,7 @@ public final class PlaceholderApi {
                      @NotNull Logger logger) {
             Cache<CacheKey, String> cache = this.cacheDuration == null ? null
                     : this.cacheFactory.create(CacheFactory.Kind.PLACEHOLDER_VALUES, this.cacheSize);
-            long window = this.cacheDuration == null ? 0 : Math.max(1, this.cacheDuration.toNanos());
-            Asker asker = new Asker(hook, this.mainThreadOnly ? owner : null, logger, cache, window);
+            Asker asker = new Asker(hook, this.mainThreadOnly ? owner : null, logger, cache, this.cacheDuration);
             flow.valueTag(this.tagName, (arguments, viewer) -> asker.prefixed(arguments, viewer));
             if (this.keys == Keys.ALL) {
                 flow.resolver(asker);
@@ -207,15 +217,33 @@ public final class PlaceholderApi {
          * PlaceholderAPI's values by player, placeholder and time window, or null without a cache.
          */
         private final @Nullable Cache<CacheKey, String> cache;
-        private final long window;
+        /**
+         * How long a value is kept, read at each value asked; null without a cache.
+         */
+        private final @Nullable java.util.function.Supplier<@Nullable Duration> duration;
 
         Asker(@NotNull Hook hook, @Nullable Predicate<@Nullable Player> owner, @NotNull Logger logger,
-              @Nullable Cache<CacheKey, String> cache, long window) {
+              @Nullable Cache<CacheKey, String> cache, @Nullable java.util.function.Supplier<@Nullable Duration> duration) {
             this.hook = hook;
             this.owner = owner;
             this.logger = logger;
             this.cache = cache;
-            this.window = window;
+            this.duration = duration;
+        }
+
+        /**
+         * The key of a value in the cache for now, or null when the cache is off (no cache, or no duration now).
+         */
+        private @Nullable CacheKey key(@NotNull String placeholder, @Nullable Player player) {
+            if (this.cache == null || this.duration == null) {
+                return null;
+            }
+            Duration duration = this.duration.get();
+            if (duration == null || duration.isZero() || duration.isNegative()) {
+                return null;
+            }
+            long length = Math.max(1, duration.toNanos());
+            return new CacheKey(player == null ? null : player.getUniqueId(), placeholder, length, System.nanoTime() / length);
         }
 
         /**
@@ -273,8 +301,7 @@ public final class PlaceholderApi {
 
         private @Nullable String ask(@NotNull String placeholder, @Nullable Pointered viewer) {
             Player player = Viewers.player(viewer);
-            CacheKey key = this.cache == null ? null
-                    : new CacheKey(player == null ? null : player.getUniqueId(), placeholder, System.nanoTime() / this.window);
+            CacheKey key = this.key(placeholder, player);
             if (this.owner != null && !this.owner.test(player)) {
                 // Off the owning thread: a value kept for this window is still given.
                 String kept = key == null ? null : this.cache.getIfPresent(key);
@@ -313,9 +340,10 @@ public final class PlaceholderApi {
     private static final String UNKNOWN = new String("");
 
     /**
-     * A cached value's key: the player (null without one), the placeholder, the time window it was asked in.
+     * A cached value's key: the player (null without one), the placeholder, the windows' length (a changed duration
+     * never reads another length's windows) and the time window it was asked in.
      */
-    record CacheKey(@Nullable java.util.UUID player, @NotNull String placeholder, long window) {
+    record CacheKey(@Nullable java.util.UUID player, @NotNull String placeholder, long length, long window) {
     }
 
     /**

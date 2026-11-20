@@ -117,6 +117,23 @@ class PlaceholderApiTest {
     }
 
     @Test
+    @DisplayName("cache(Supplier): the duration is read at each value; null turns the cache off while it is so")
+    void cacheSupplier() {
+        java.util.concurrent.atomic.AtomicReference<java.time.Duration> duration = new java.util.concurrent.atomic.AtomicReference<>();
+        MiniMessageFlow flow = this.flow(PlaceholderApi.builder().cache(duration::get), true);
+        this.plain(flow, "%vault_eco_balance%", this.steve);
+        this.plain(flow, "%vault_eco_balance%", this.steve);
+        assertEquals(2, this.api.calls.get(), "no duration: no cache");
+        duration.set(java.time.Duration.ofDays(1));
+        this.plain(flow, "%vault_eco_balance%", this.steve);
+        this.plain(flow, "%vault_eco_balance%", this.steve);
+        assertEquals(3, this.api.calls.get(), "a duration: kept");
+        duration.set(java.time.Duration.ofDays(2));
+        this.plain(flow, "%vault_eco_balance%", this.steve);
+        assertEquals(4, this.api.calls.get(), "another duration: other windows, asked again");
+    }
+
+    @Test
     @DisplayName("cache: with mainThreadOnly, a value kept for the window is given off the owning thread")
     void cacheOffThread() {
         AtomicBoolean mainThread = new AtomicBoolean(true);

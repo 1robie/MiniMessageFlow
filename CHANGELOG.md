@@ -7,6 +7,8 @@
   show it; an unknown placeholder is kept as unknown). With `mainThreadOnly`, a value kept for the window is still
   given off the owning thread. `cacheSize(int)` (10,000 by default) and `cacheFactory(CacheFactory)` (a bounded map
   by default; `GuavaCacheFactory`...), with the new `CacheFactory.Kind.PLACEHOLDER_VALUES`. Off by default.
+  `cache(Supplier<Duration>)` reads the duration at each value asked (a configuration reloaded applies at once;
+  null turns the cache off while it is so).
 
 - `Template.style(Style)` and `TemplateList.style(Style)` / `style(line -> style)`: each render gets a style on its
   root, set over the root's own (the text inside keeps its styles): an item's name and lore not italic. While the
