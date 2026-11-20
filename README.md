@@ -223,7 +223,7 @@ template compiled before the name existed reads it by name, a little slower; com
   (`resolveComponent`, asked first), inserted as it is and never parsed.
 - **Builder options**: `legacyCodes(boolean)`, `tags(TagResolver)` and `tag(name, Tag)` (your own tags, which can
   replace standard ones; each call adds to the others; a tag of the message, which may be resolved once when it is
-  compiled), `valueTag(name, ValueTag)` (a tag computed at each render for the viewer, below), `templateCacheSize`, `valueCacheSize`, `cacheFactory(CacheFactory)` (your caches, for example Guava or Caffeine with
+  compiled), `valueTag(name, ValueTag)` (a tag computed at each render for the viewer, below), `templateCacheSize`, `valueCacheSize`, `cacheFactory(CacheFactory)` (your caches: on Paper, `GuavaCacheFactory.create()` or `GuavaCacheFactory.builder().expireAfterAccess(Duration.ofMinutes(10)).build()`, least recently used dropped first, about 30 ns and 24 B more per cache read than the default; or Caffeine with
   an expiry; the default is a bounded map without dependency), `nativeCompiler(boolean)`,
   `errorHandler(BiConsumer<String, Throwable>)` (told when a resolver or a value throws; by default one warning per
   key in the log), `modifier(name, modifier)` (a modifier of this instance only), `bareHexColors(boolean)` (false: a

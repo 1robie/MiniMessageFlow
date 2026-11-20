@@ -23,6 +23,9 @@
   `%add_one_x%`, `%remove_one_x%`, read when compiled; a value for the prefixed name itself wins.
 - `builder.failedModifier(FailedModifier.EMPTY)`: a value whose modifiers don't apply gives the empty text instead
   of the placeholder as written. A placeholder without a value stays as written either way.
+- Paper: `GuavaCacheFactory`, caches made with the Guava every Paper server has: bounded by size, least recently
+  used dropped first, optionally `expireAfterAccess`. Opt-in (`cacheFactory(GuavaCacheFactory.create())`): a cache
+  read costs about 30 ns and 24 B more than the default's, which stays `PaperFlow`'s.
 - README: a "Which one to use" table, how to add to an instance after build, scopes, and a section for code coming
   from a string placeholder parser.
 
