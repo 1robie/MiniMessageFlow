@@ -135,4 +135,18 @@ public interface Template {
     default @NotNull String renderPlain(@NotNull Placeholder placeholders) {
         return this.renderPlain(placeholders, null);
     }
+
+    /**
+     * This template, its renders getting a style on their root, set over what the root has: an item's name or lore
+     * that must not be italic ({@code Style.style(TextDecoration.ITALIC.withState(false))}), a line always in a
+     * font. The text inside keeps its own styles, which win over the root's as usual. While this template gives the
+     * same render as before ({@link Values#rememberRenders}), the styled one is the same instance too. With
+     * {@link #renderLines}, each line gets the style.
+     *
+     * @param style the style set on the root of each render
+     * @return the styled template, or this one when the style is empty
+     */
+    default @NotNull Template style(@NotNull net.kyori.adventure.text.format.Style style) {
+        return StyledTemplate.of(this, style);
+    }
 }

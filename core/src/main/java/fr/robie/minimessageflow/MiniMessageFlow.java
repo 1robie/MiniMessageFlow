@@ -55,7 +55,7 @@ public final class MiniMessageFlow {
                             boolean verifyNative, @NotNull CacheFactory caches,
                             @NotNull BiConsumer<String, Throwable> errors,
                             boolean bareHexColors, @NotNull ValueKeys keys, boolean legacyPrefixModifiers,
-                            @NotNull FailedModifier failedModifier) {
+                            @NotNull FailedModifier failedModifier, boolean placeholdersInFormattedValues) {
     }
 
     /**
@@ -93,7 +93,8 @@ public final class MiniMessageFlow {
         this.modifiers = builder.modifiers.build();
         this.settings = new Settings(builder.legacyCodes, builder.valueCacheSize, builder.templateCacheSize,
                 builder.nativeCompiler, builder.verifyNative, builder.caches, Objects.requireNonNull(builder.errors),
-                builder.bareHexColors, this.keys, builder.legacyPrefixModifiers, builder.failedModifier);
+                builder.bareHexColors, this.keys, builder.legacyPrefixModifiers, builder.failedModifier,
+                builder.placeholdersInFormattedValues);
         for (TagResolver tags : builder.tags) {
             this.tags.add(new TagEntry(null, tags));
         }
@@ -140,7 +141,7 @@ public final class MiniMessageFlow {
         Settings s = this.settings;
         return new Engine(s.legacyCodes(), resolvers, tags, s.valueCacheSize(), s.nativeCompiler(),
                 s.verifyNative(), s.caches(), s.errors(), this.modifiers, s.bareHexColors(), s.keys(), constants,
-                s.legacyPrefixModifiers(), s.failedModifier() == FailedModifier.EMPTY);
+                s.legacyPrefixModifiers(), s.failedModifier() == FailedModifier.EMPTY, s.placeholdersInFormattedValues());
     }
 
     /**
@@ -640,6 +641,7 @@ public final class MiniMessageFlow {
         private boolean bareHexColors = true;
         private boolean legacyPrefixModifiers;
         private FailedModifier failedModifier = FailedModifier.WRITTEN;
+        private boolean placeholdersInFormattedValues;
 
         private Builder() {
         }
@@ -666,6 +668,20 @@ public final class MiniMessageFlow {
          */
         public @NotNull Builder legacyPrefixModifiers(boolean legacyPrefixModifiers) {
             this.legacyPrefixModifiers = legacyPrefixModifiers;
+            return this;
+        }
+
+        /**
+         * Whether the {@code %key%} placeholders written inside a formatted value ({@code setFormatted},
+         * {@code registerFormatted}, a formatted lookup) are read at each render, for the render's viewer, through
+         * the instance's resolvers (PlaceholderAPI...), before the value is parsed: a configuration's value
+         * {@code "%vault_eco_balance%$"} shows the balance, as a string placeholder parser that ran PlaceholderAPI on
+         * its result did. Plain values (what a player typed), resolvers' own text and the {@code raw} modifier are
+         * never read. One level, modifiers not read there. Only values holding a {@code %} pay for it. Default:
+         * false.
+         */
+        public @NotNull Builder placeholdersInFormattedValues(boolean placeholdersInFormattedValues) {
+            this.placeholdersInFormattedValues = placeholdersInFormattedValues;
             return this;
         }
 

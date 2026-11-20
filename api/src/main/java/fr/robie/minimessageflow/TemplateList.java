@@ -40,6 +40,36 @@ public final class TemplateList {
     }
 
     /**
+     * These lines, each rendered with a style on its root ({@link Template#style}): an item's lore not in italic.
+     *
+     * @param style the style set on the root of each line
+     * @return the styled lines
+     */
+    public @NotNull TemplateList style(@NotNull net.kyori.adventure.text.format.Style style) {
+        Objects.requireNonNull(style, "style cannot be null");
+        List<Template> styled = new ArrayList<>(this.templates.size());
+        for (Template template : this.templates) {
+            styled.add(template.style(style));
+        }
+        return of(styled);
+    }
+
+    /**
+     * Each line with its own style on its root, computed from the line ({@code line -> italic or not}).
+     *
+     * @param style gives the style of each line from its template
+     * @return the styled lines
+     */
+    public @NotNull TemplateList style(@NotNull java.util.function.Function<Template, net.kyori.adventure.text.format.Style> style) {
+        Objects.requireNonNull(style, "style cannot be null");
+        List<Template> styled = new ArrayList<>(this.templates.size());
+        for (Template template : this.templates) {
+            styled.add(template.style(style.apply(template)));
+        }
+        return of(styled);
+    }
+
+    /**
      * The compiled lines, one per line given.
      */
     public @NotNull List<Template> templates() {

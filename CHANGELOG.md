@@ -2,6 +2,16 @@
 
 ## 1.5.0
 
+- `Template.style(Style)` and `TemplateList.style(Style)` / `style(line -> style)`: each render gets a style on its
+  root, set over the root's own (the text inside keeps its styles): an item's name and lore not italic. While the
+  template gives the same render (values unchanged, `rememberRenders`), the styled one is the same instance too, per
+  `Values`.
+- `builder.placeholdersInFormattedValues(true)`: the `%key%` placeholders written inside a formatted value
+  (`setFormatted`, `registerFormatted`, a formatted lookup) are read at each render through the resolvers, for the
+  render's viewer, then the value is parsed: a configuration's `"%vault_eco_balance%$"` shows the balance. Plain
+  values, `raw` and resolvers' own text are never read; one level, modifiers not read there; only values holding a
+  `%` pay for it. Off by default.
+
 - Changes after build: `MiniMessageFlow.tag(name, Tag)`, `tags(TagResolver)`, `resolver(...)`, `valueTag(...)`,
   `constant(...)` and their `remove...` add to an instance and remove from it at any time, thread-safe. Every
   template it compiled, before or after (`compile`, `format`, `compileAll`, `compileText`, the translator's), uses

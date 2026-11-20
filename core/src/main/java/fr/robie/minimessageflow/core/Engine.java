@@ -99,6 +99,10 @@ public final class Engine {
      * Whether a value whose modifiers don't apply gives the empty text instead of the placeholder as written.
      */
     private final boolean emptyOnFailedModifier;
+    /**
+     * Whether the {@code %key%} placeholders of a formatted value's text are read through the resolvers at render.
+     */
+    private final boolean placeholdersInFormattedValues;
     private final MiniMessage miniMessage;
     private final MiniMessage templateMiniMessage;
     private final AdventureBridge bridge;
@@ -138,7 +142,8 @@ public final class Engine {
                   boolean nativeCompiler, boolean verifyNative, @NotNull CacheFactory caches,
                   @NotNull BiConsumer<String, Throwable> errors, @NotNull ModifierSet modifiers, boolean bareHex,
                   @NotNull ValueKeys keys, @NotNull Map<String, Object> constants, boolean legacyPrefixes,
-                  boolean emptyOnFailedModifier) {
+                  boolean emptyOnFailedModifier, boolean placeholdersInFormattedValues) {
+        this.placeholdersInFormattedValues = placeholdersInFormattedValues;
         this.legacyPrefixes = legacyPrefixes;
         this.emptyOnFailedModifier = emptyOnFailedModifier;
         this.keys = keys;
@@ -489,7 +494,7 @@ public final class Engine {
                 String text = chain == null ? null : chain.apply(base instanceof String string ? string
                         : this.plainText(bases[i], (PlaceholderValue) base, viewer));
                 if (text != null) {
-                    return base instanceof PlaceholderValue value && value.isFormatted() ? this.formatted(plan, text) : text;
+                    return base instanceof PlaceholderValue value && value.isFormatted() ? this.formatted(plan, text, viewer) : text;
                 }
                 break;
             }
@@ -546,7 +551,7 @@ public final class Engine {
         }
         if (raw != null) {
             if (raw instanceof String text) {
-                return layer.hasFormatted() && layer.isFormatted(index) ? this.formatted(plan, text) : text;
+                return layer.hasFormatted() && layer.isFormatted(index) ? this.formatted(plan, text, viewer) : text;
             }
             if (raw instanceof PlaceholderValue computed) {
                 return this.computed(plan, plan.key, computed, viewer);
@@ -568,17 +573,17 @@ public final class Engine {
                         : PLAIN.serialize((Component) base));
                 boolean formatted = base instanceof String ? layer.isFormatted(baseIndex)
                         : base instanceof PlaceholderValue computed && computed.isFormatted();
-                return modified != null && formatted ? this.formatted(plan, modified) : modified;
+                return modified != null && formatted ? this.formatted(plan, modified, viewer) : modified;
             }
         }
-        return this.fromLookups(plan, values);
+        return this.fromLookups(plan, values, viewer);
     }
 
     /**
      * The value a prefix lookup of the values gives: the key itself, then each base with its modifiers. Null when no
      * lookup of any layer has one.
      */
-    private @Nullable Object fromLookups(@NotNull KeyPlan plan, @NotNull Values values) {
+    private @Nullable Object fromLookups(@NotNull KeyPlan plan, @NotNull Values values, @Nullable Pointered viewer) {
         for (Values layer = values; layer != null; layer = layer.parent()) {
             int count = layer.lookupCount();
             for (int i = 0; i < count; i++) {
@@ -586,7 +591,7 @@ public final class Engine {
                 if (plan.key.startsWith(prefix)) {
                     String text = this.lookup(layer, i, plan.key, prefix);
                     if (text != null) {
-                        return layer.isLookupFormatted(i) ? this.formatted(plan, text) : text;
+                        return layer.isLookupFormatted(i) ? this.formatted(plan, text, viewer) : text;
                     }
                 }
                 for (int b = 0; b < plan.bases.length; b++) {
@@ -598,7 +603,7 @@ public final class Engine {
                             if (modified == null) {
                                 return null;
                             }
-                            return layer.isLookupFormatted(i) ? this.formatted(plan, modified) : modified;
+                            return layer.isLookupFormatted(i) ? this.formatted(plan, modified, viewer) : modified;
                         }
                     }
                 }
@@ -636,14 +641,47 @@ public final class Engine {
             return this.toComponent(key, value, viewer);
         }
         String text = this.plainText(key, value, viewer);
-        return value.isFormatted() ? this.formatted(plan, text) : text;
+        return value.isFormatted() ? this.formatted(plan, text, viewer) : text;
     }
 
     /**
      * Formatted text as a component, parsed once per text (the resolver texts' cache), or as written with raw.
      */
-    private @NotNull Object formatted(@NotNull KeyPlan plan, @NotNull String text) {
-        return plan.raw ? text : this.parseResolverText(text);
+    private @NotNull Object formatted(@NotNull KeyPlan plan, @NotNull String text, @Nullable Pointered viewer) {
+        if (plan.raw) {
+            return text;
+        }
+        if (this.placeholdersInFormattedValues && text.indexOf('%') >= 0) {
+            text = this.resolveInValue(text, viewer);
+        }
+        return this.parseResolverText(text);
+    }
+
+    /**
+     * The {@code %key%} placeholders of a formatted value's text, given by the resolvers for the render's viewer (a
+     * resolver's component as its plain text); a placeholder no resolver has stays as written. One level: what a
+     * resolver gives is not read again. Modifiers are not read here.
+     */
+    private @NotNull String resolveInValue(@NotNull String text, @Nullable Pointered viewer) {
+        return PlaceholderScanner.replace(text, (key, start) -> {
+            if (!isKey(key)) {
+                return null;
+            }
+            for (Resolver resolver : this.resolvers) {
+                Component component = this.resolveComponent(resolver, key, viewer);
+                if (component == FAILED) {
+                    continue;
+                }
+                if (component != null) {
+                    return PLAIN.serialize(component);
+                }
+                String resolved = this.resolve(resolver, key, viewer);
+                if (resolved != null) {
+                    return resolved;
+                }
+            }
+            return null;
+        });
     }
 
     @NotNull ValueKeys keys() {
