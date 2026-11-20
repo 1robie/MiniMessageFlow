@@ -452,6 +452,9 @@ public final class Engine {
      */
     @Nullable Object value(@NotNull KeyPlan plan, @NotNull Placeholder placeholders, @Nullable Values values,
                            @Nullable Pointered viewer) {
+        if (values != null && values.rawValues() && !plan.raw) {
+            plan = this.rawPlan(plan);
+        }
         if (plan.constant != null) {
             return plan.constant;
         }
@@ -725,6 +728,10 @@ public final class Engine {
          * How many keys were declared when this plan was made: a key declared since is looked up by name.
          */
         final int keysSeen;
+        /**
+         * The same placeholder placed as written, for values that ask for it; made on first use.
+         */
+        volatile @Nullable KeyPlan rawTwin;
 
         private KeyPlan(@NotNull String key, @NotNull String written, boolean raw, @NotNull String @NotNull [] bases,
                         @Nullable PlaceholderModifiers.Chain @NotNull [] chains, @NotNull ValueKeys keys,
@@ -779,6 +786,18 @@ public final class Engine {
      */
     public @NotNull fr.robie.minimessageflow.TextTemplate compileText(@NotNull String source) {
         return new CompiledText(this, source);
+    }
+
+    /**
+     * The plan of a placeholder placed as written, made once from the plan as written.
+     */
+    private @NotNull KeyPlan rawPlan(@NotNull KeyPlan plan) {
+        KeyPlan twin = plan.rawTwin;
+        if (twin == null) {
+            twin = this.plan(plan.key, true);
+            plan.rawTwin = twin;
+        }
+        return twin;
     }
 
     private @NotNull KeyPlan plan(@NotNull String key, boolean forceRaw) {

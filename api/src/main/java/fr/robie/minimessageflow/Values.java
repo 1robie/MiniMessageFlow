@@ -74,6 +74,10 @@ public final class Values {
      * identity. Null when they don't.
      */
     private @Nullable java.util.IdentityHashMap<Object, Object> renders;
+    /**
+     * Whether every value is placed as written when rendering with these values, as with the raw modifier.
+     */
+    private boolean rawValues;
 
     private static final String[] NO_PREFIXES = new String[0];
     @SuppressWarnings({"unchecked", "rawtypes"})
@@ -92,7 +96,31 @@ public final class Values {
      * values under its menu's), they are set again at each render without allocating.
      */
     public @NotNull Values child() {
-        return new Values(this.keys, this, this.numberStyle);
+        Values child = new Values(this.keys, this, this.numberStyle);
+        child.rawValues = this.rawValues;
+        return child;
+    }
+
+    /**
+     * Makes a render with these values place every placeholder's value as written, as if each placeholder ended
+     * with the raw modifier ({@code %key.raw%}): formatted values and a resolver's text are not read as tags or
+     * colour codes, and a component gives its plain text. The template's own text is formatted as usual. For text
+     * where values may come from players (a nickname, what they typed) while the template is trusted. Children made
+     * after this call keep the setting.
+     *
+     * @param raw true to place values as written
+     * @return these values
+     */
+    public @NotNull Values rawValues(boolean raw) {
+        this.rawValues = raw;
+        return this;
+    }
+
+    /**
+     * Whether a render with these values places every value as written ({@link #rawValues(boolean)}).
+     */
+    public boolean rawValues() {
+        return this.rawValues;
     }
 
     /**

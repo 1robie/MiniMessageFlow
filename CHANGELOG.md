@@ -2,6 +2,11 @@
 
 ## 1.5.0
 
+- `Values.rawValues(true)`: a render with these values places every value as written, as if each placeholder ended
+  with `raw`: formatted values and a resolver's text are not read as tags or colour codes, a component gives its
+  plain text; the template's own text is formatted as usual. For trusted text showing values players wrote. Children
+  made after it keep the setting.
+
 - Paper: `PlaceholderApi.Builder.cache(Duration)`: what PlaceholderAPI gives is kept per player and placeholder for
   that long (a time window: the same placeholder for the same player is asked once per window, however many renders
   show it; an unknown placeholder is kept as unknown). With `mainThreadOnly`, a value kept for the window is still
