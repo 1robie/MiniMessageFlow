@@ -77,6 +77,10 @@ public final class MiniMessageFlow {
      */
     private volatile @Nullable Engine engine;
     /**
+     * Counts the changes of definitions ({@link #revision()}).
+     */
+    private volatile int revision;
+    /**
      * Changes a message before it is compiled, or null ({@link #preprocessor(UnaryOperator)}).
      */
     private volatile @Nullable UnaryOperator<String> preprocessor;
@@ -198,6 +202,7 @@ public final class MiniMessageFlow {
      * Makes the engine again on its next use. Called holding the lock.
      */
     private void changed() {
+        this.revision++;
         this.engine = null;
         this.templates.clear();
         this.texts.clear();
@@ -389,6 +394,17 @@ public final class MiniMessageFlow {
      */
     public @Nullable UnaryOperator<String> preprocessor() {
         return this.preprocessor;
+    }
+
+    /**
+     * A number that changes each time the definitions of this instance change (tags, value tags, resolvers, constants,
+     * the preprocessor, the number style): what was made from a render, an item kept by a plugin, is still current
+     * while it has not changed. One volatile read.
+     *
+     * @return the revision of the definitions
+     */
+    public int revision() {
+        return this.revision;
     }
 
     /**

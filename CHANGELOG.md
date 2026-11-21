@@ -2,6 +2,9 @@
 
 ## 1.5.0
 
+- `instance.revision()`: a number that changes each time the instance's definitions change (tags, value tags,
+  resolvers, constants, preprocessor, number style), for a plugin that keeps what it made from a render (a built
+  item) to know it is still current. One volatile read.
 - `builder.preprocessor(UnaryOperator<String>)` and `instance.preprocessor(...)`: changes each message before it is
   compiled (`compile`, `compileList`, `format`...), such as a plugin's font images or emoji codes. Applied once per
   compile, never at a render; `source()` stays the message as written. Changing it compiles the templates made before
