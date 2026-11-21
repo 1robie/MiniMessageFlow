@@ -2,6 +2,11 @@
 
 ## 1.5.0
 
+- `builder.preprocessor(UnaryOperator<String>)` and `instance.preprocessor(...)`: changes each message before it is
+  compiled (`compile`, `compileList`, `format`...), such as a plugin's font images or emoji codes. Applied once per
+  compile, never at a render; `source()` stays the message as written. Changing it compiles the templates made before
+  again on their next render. Not applied to `compileText`. One that throws or gives null leaves the message as it is
+  (reported to the error handler).
 - `Values.rawValues(true)`: a render with these values places every value as written, as if each placeholder ended
   with `raw`: formatted values and a resolver's text are not read as tags or colour codes, a component gives its
   plain text; the template's own text is formatted as usual. For trusted text showing values players wrote. Children

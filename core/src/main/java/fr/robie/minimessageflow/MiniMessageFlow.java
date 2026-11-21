@@ -27,6 +27,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.BiConsumer;
+import java.util.function.UnaryOperator;
 
 /**
  * Formats MiniMessage text with placeholders. Thread-safe: build one and share it.
@@ -75,6 +76,10 @@ public final class MiniMessageFlow {
      * The engine for the definitions as they are; null after a change, made again on use.
      */
     private volatile @Nullable Engine engine;
+    /**
+     * Changes a message before it is compiled, or null ({@link #preprocessor(UnaryOperator)}).
+     */
+    private volatile @Nullable UnaryOperator<String> preprocessor;
     private final EngineSource source = this::engine;
     private final Cache<String, Template> templates;
     private final Cache<String, TextTemplate> texts;
@@ -99,6 +104,7 @@ public final class MiniMessageFlow {
             this.tags.add(new TagEntry(null, tags));
         }
         this.resolvers.addAll(builder.resolvers);
+        this.preprocessor = builder.preprocessor;
         this.constants.putAll(builder.constants);
         this.templates = builder.caches.create(CacheFactory.Kind.TEMPLATES, builder.templateCacheSize);
         this.texts = builder.caches.create(CacheFactory.Kind.TEXT_TEMPLATES, builder.templateCacheSize);
@@ -141,7 +147,8 @@ public final class MiniMessageFlow {
         Settings s = this.settings;
         return new Engine(s.legacyCodes(), resolvers, tags, s.valueCacheSize(), s.nativeCompiler(),
                 s.verifyNative(), s.caches(), s.errors(), this.modifiers, s.bareHexColors(), s.keys(), constants,
-                s.legacyPrefixModifiers(), s.failedModifier() == FailedModifier.EMPTY, s.placeholdersInFormattedValues());
+                s.legacyPrefixModifiers(), s.failedModifier() == FailedModifier.EMPTY, s.placeholdersInFormattedValues(),
+                this.preprocessor);
     }
 
     /**
@@ -358,6 +365,30 @@ public final class MiniMessageFlow {
             }
         }
         return this;
+    }
+
+    /**
+     * Changes the preprocessor, as {@link Builder#preprocessor} set it: the templates compiled before, of this
+     * instance, are compiled again from their message on their next render. Thread-safe.
+     *
+     * @param preprocessor what changes a message before it is compiled, or null for none
+     * @return this instance
+     */
+    public @NotNull MiniMessageFlow preprocessor(@Nullable UnaryOperator<String> preprocessor) {
+        synchronized (this) {
+            if (this.preprocessor != preprocessor) {
+                this.preprocessor = preprocessor;
+                this.changed();
+            }
+        }
+        return this;
+    }
+
+    /**
+     * What changes a message before it is compiled now, or null.
+     */
+    public @Nullable UnaryOperator<String> preprocessor() {
+        return this.preprocessor;
     }
 
     /**
@@ -642,6 +673,7 @@ public final class MiniMessageFlow {
         private boolean legacyPrefixModifiers;
         private FailedModifier failedModifier = FailedModifier.WRITTEN;
         private boolean placeholdersInFormattedValues;
+        private @Nullable UnaryOperator<String> preprocessor;
 
         private Builder() {
         }
@@ -682,6 +714,18 @@ public final class MiniMessageFlow {
          */
         public @NotNull Builder placeholdersInFormattedValues(boolean placeholdersInFormattedValues) {
             this.placeholdersInFormattedValues = placeholdersInFormattedValues;
+            return this;
+        }
+
+        /**
+         * Changes each message before it is compiled ({@code compile}, {@code compileList}, {@code format}...): a
+         * plugin's font images or emoji codes ({@code :heart:} to its glyph). Applied once per compile, never at a
+         * render; a template's {@code source()} stays the message as written. Not applied to {@code compileText}
+         * (commands, URLs). A preprocessor that throws or gives null leaves the message as it is (the error handler
+         * is told). Keep it fast and return the message itself when it has nothing to change. Default: none.
+         */
+        public @NotNull Builder preprocessor(@Nullable UnaryOperator<String> preprocessor) {
+            this.preprocessor = preprocessor;
             return this;
         }
 

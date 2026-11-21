@@ -33,6 +33,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.function.BiConsumer;
+import java.util.function.UnaryOperator;
 
 /**
  * The stage 1 engine: MiniMessage parses each message once, with a marker where each placeholder goes, and each
@@ -103,6 +104,10 @@ public final class Engine {
      * Whether the {@code %key%} placeholders of a formatted value's text are read through the resolvers at render.
      */
     private final boolean placeholdersInFormattedValues;
+    /**
+     * Changes a message before it is compiled (font images, emoji codes...), or null.
+     */
+    private final @Nullable UnaryOperator<String> preprocessor;
     private final MiniMessage miniMessage;
     private final MiniMessage templateMiniMessage;
     private final AdventureBridge bridge;
@@ -142,7 +147,9 @@ public final class Engine {
                   boolean nativeCompiler, boolean verifyNative, @NotNull CacheFactory caches,
                   @NotNull BiConsumer<String, Throwable> errors, @NotNull ModifierSet modifiers, boolean bareHex,
                   @NotNull ValueKeys keys, @NotNull Map<String, Object> constants, boolean legacyPrefixes,
-                  boolean emptyOnFailedModifier, boolean placeholdersInFormattedValues) {
+                  boolean emptyOnFailedModifier, boolean placeholdersInFormattedValues,
+                  @Nullable UnaryOperator<String> preprocessor) {
+        this.preprocessor = preprocessor;
         this.placeholdersInFormattedValues = placeholdersInFormattedValues;
         this.legacyPrefixes = legacyPrefixes;
         this.emptyOnFailedModifier = emptyOnFailedModifier;
@@ -185,6 +192,9 @@ public final class Engine {
     // --- compiling ----------------------------------------------------------------------------------------------
 
     public @NotNull Template compile(@NotNull String source) {
+        if (this.preprocessor != null) {
+            source = this.preprocess(source);
+        }
         Set<Integer> unquoted = new java.util.HashSet<>();
         String text = PlaceholderScanner.quoteArguments(stripNoncharacters(source), Engine::isKey, unquoted);
         Slots slots = new Slots();
@@ -882,6 +892,19 @@ public final class Engine {
         } catch (RuntimeException e) {
             this.report(key, e);
             return FAILED;
+        }
+    }
+
+    /**
+     * The message the preprocessor gives; the message as it is when it throws or gives null (the error handler is told).
+     */
+    private @NotNull String preprocess(@NotNull String source) {
+        try {
+            String processed = this.preprocessor.apply(source);
+            return processed == null ? source : processed;
+        } catch (RuntimeException e) {
+            this.report("preprocessor", e);
+            return source;
         }
     }
 
