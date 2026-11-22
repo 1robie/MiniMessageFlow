@@ -2,6 +2,12 @@
 
 ## 1.5.0
 
+- Placeholders written inside another one, as PlaceholderAPI expansions are often given a value
+  (`%changeoutput_equals_input:%page%_matcher:1_ifmatch:<glyph:first>_else:x%`, `%math_0_%amount%+1%`): such a
+  message or text is read in the order a string placeholder parser used. Its values are written in first (a value a
+  player typed escaped, so it is never read), then the placeholders they complete are asked of the resolvers with
+  their whole argument, tags included, then the text is formatted (cached by text). Before, the outer placeholder was
+  cut at the inner `%`. Other messages keep their compiled path.
 - `instance.revision()`: a number that changes each time the instance's definitions change (tags, value tags,
   resolvers, constants, preprocessor, number style), for a plugin that keeps what it made from a render (a built
   item) to know it is still current. One volatile read.

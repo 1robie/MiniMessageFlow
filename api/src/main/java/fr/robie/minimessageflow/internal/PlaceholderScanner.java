@@ -116,6 +116,53 @@ public final class PlaceholderScanner {
     }
 
     /**
+     * Whether a text has a placeholder written inside another one, as PlaceholderAPI's expansions are often given a
+     * value: {@code %changeoutput_equals_input:%page%_matcher:1_ifmatch:a_else:b%}, {@code %math_0_%amount%+1%}. True
+     * when a {@code %key%} comes right after an argument separator ({@code : _ , = ( ; | /}) of an enclosing token
+     * whose name is itself a key ({@code changeoutput_equals_input:}), and that token closes later without whitespace.
+     * Such a text is read in the old order: its values first, then the placeholders they complete, then the
+     * formatting.
+     *
+     * @param text the text
+     * @return true when a placeholder is nested in another
+     */
+    public static boolean hasNested(@NotNull String text) {
+        int i = text.indexOf('%');
+        int length = text.length();
+        while (i >= 0) {
+            int end = text.indexOf('%', i + 1);
+            if (end < 0) {
+                return false;
+            }
+            if (end > i + 1 && i > 0 && end + 1 < length && SEPARATORS.indexOf(text.charAt(i - 1)) >= 0
+                    && Character.isLetterOrDigit(text.charAt(i + 1)) && isKey(text.substring(i + 1, end))) {
+                int open = text.lastIndexOf('%', i - 1);
+                int close = text.indexOf('%', end + 1);
+                if (open >= 0 && close >= 0 && Character.isLetterOrDigit(text.charAt(open + 1))
+                        && isKey(text.substring(open + 1, i)) && noWhitespace(text, end, close)) {
+                    return true;
+                }
+            }
+            i = end;
+        }
+        return false;
+    }
+
+    /**
+     * The characters PlaceholderAPI expansions put before an argument: a nested placeholder follows one of them.
+     */
+    private static final String SEPARATORS = ":_,=(;|/";
+
+    private static boolean noWhitespace(@NotNull String text, int from, int to) {
+        for (int i = from; i < to; i++) {
+            if (Character.isWhitespace(text.charAt(i))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
      * Whether a token can be a placeholder key: no whitespace and none of the characters a tag, an escape or a
      * legacy code uses. Such a token is never resolved, so a scan finds the same tokens whatever the values. A
      * declared key's name ({@code builder.key(name)}) must also hold no {@code %}, which would end its token.

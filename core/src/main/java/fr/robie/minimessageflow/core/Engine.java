@@ -195,6 +195,9 @@ public final class Engine {
         if (this.preprocessor != null) {
             source = this.preprocess(source);
         }
+        if (PlaceholderScanner.hasNested(source)) {
+            return new NestedTemplate(this, source);
+        }
         Set<Integer> unquoted = new java.util.HashSet<>();
         String text = PlaceholderScanner.quoteArguments(stripNoncharacters(source), Engine::isKey, unquoted);
         Slots slots = new Slots();
@@ -795,7 +798,112 @@ public final class Engine {
      * Compiles a text whose placeholders are rendered as a {@code String}.
      */
     public @NotNull fr.robie.minimessageflow.TextTemplate compileText(@NotNull String source) {
-        return new CompiledText(this, source);
+        return PlaceholderScanner.hasNested(source) ? new NestedText(this, source) : new CompiledText(this, source);
+    }
+
+    /**
+     * Hides a {@code %} of a plain value written into a nested text, so the resolvers don't read it; given back after.
+     */
+    private static final char HIDDEN_PERCENT = '\uF8FF';
+
+    /**
+     * The plans of the keys of a nested text, made on first use.
+     */
+    static final class NestedPlans {
+        private final java.util.concurrent.ConcurrentHashMap<String, KeyPlan> plans = new java.util.concurrent.ConcurrentHashMap<>();
+    }
+
+    /**
+     * A text with a placeholder inside another, written out in the order a string placeholder parser used: each
+     * {@code %key%} that has a value is replaced by it (a formatted value as MiniMessage, a plain value with its tags
+     * escaped, so what a player typed is never read), then the placeholders these complete are asked of the resolvers
+     * (PlaceholderAPI reads its whole argument, tags included), each once. Modifiers apply to the values.
+     */
+    @NotNull String expandNested(@NotNull String source, @NotNull NestedPlans plans, @Nullable Placeholder placeholders,
+                                 @Nullable Values values, @Nullable Pointered viewer) {
+        StringBuilder out = null;
+        int copied = 0;
+        int i = source.indexOf('%');
+        while (i >= 0) {
+            int end = source.indexOf('%', i + 1);
+            if (end < 0) {
+                break;
+            }
+            String key = source.substring(i + 1, end);
+            String value = end > i + 1 && isKey(key) ? this.nestedValue(plans, key, placeholders, values, viewer) : null;
+            if (value == null) {
+                i = end;
+                continue;
+            }
+            if (out == null) {
+                out = new StringBuilder(source.length() + 16);
+            }
+            out.append(source, copied, i).append(value);
+            copied = end + 1;
+            i = source.indexOf('%', copied);
+        }
+        String filled = out == null ? source : out.append(source, copied, source.length()).toString();
+        String resolved = PlaceholderScanner.replace(filled, (key, start) -> this.resolveNested(key, viewer));
+        return resolved.indexOf(HIDDEN_PERCENT) < 0 ? resolved : resolved.replace(HIDDEN_PERCENT, '%');
+    }
+
+    /**
+     * The value of a key of a nested text from the values and placeholders given, never from the resolvers: a token
+     * cut by a nested placeholder ({@code changeoutput_equals_input:}) must not be asked. Null when none has it.
+     */
+    private @Nullable String nestedValue(@NotNull NestedPlans plans, @NotNull String key, @Nullable Placeholder placeholders,
+                                         @Nullable Values values, @Nullable Pointered viewer) {
+        KeyPlan plan = plans.plans.computeIfAbsent(key, name -> this.plan(name, false));
+        Object value = null;
+        if (values != null) {
+            value = this.fromValues(plan, values, viewer);
+        }
+        if (value == null && placeholders != null) {
+            Object raw = placeholders.raw(plan.key);
+            if (raw instanceof String text) {
+                value = text;
+            } else if (raw instanceof PlaceholderValue computed) {
+                value = this.computed(plan, plan.key, computed, viewer);
+            }
+        }
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof Component component) {
+            return this.miniMessage.serialize(component);
+        }
+        String text = this.miniMessage.escapeTags((String) value);
+        return text.indexOf('%') < 0 ? text : text.replace('%', HIDDEN_PERCENT);
+    }
+
+    /**
+     * A placeholder of a nested text once its values are written in, asked of the resolvers; null to keep it.
+     */
+    private @Nullable String resolveNested(@NotNull String key, @Nullable Pointered viewer) {
+        if (key.isEmpty() || key.indexOf('\n') >= 0) {
+            return null;
+        }
+        for (Resolver resolver : this.resolvers) {
+            Component component = this.resolveComponent(resolver, key, viewer);
+            if (component == FAILED) {
+                continue;
+            }
+            if (component != null) {
+                return this.miniMessage.serialize(component);
+            }
+            String resolved = this.resolve(resolver, key, viewer);
+            if (resolved != null) {
+                return resolved;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * A nested text once written out, formatted (cached by text, as a resolver's text).
+     */
+    @NotNull Component renderNested(@NotNull String text) {
+        return this.parseResolverText(text);
     }
 
     /**
