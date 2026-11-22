@@ -2,6 +2,10 @@
 
 ## 1.5.0
 
+- Paper: PlaceholderAPI is used by an instance built before it is enabled (a plugin building its instance in its
+  constructor or `onLoad`): it is asked from the first render after PlaceholderAPI is enabled. Before, `applyTo` and
+  `PaperFlow` added nothing when PlaceholderAPI was not enabled yet, so its placeholders stayed as written.
+  `applyTo` returns whether it is enabled now.
 - Placeholders written inside another one, as PlaceholderAPI expansions are often given a value
   (`%changeoutput_equals_input:%page%_matcher:1_ifmatch:<glyph:first>_else:x%`, `%math_0_%amount%+1%`): such a
   message or text is read in the order a string placeholder parser used. Its values are written in first (a value a

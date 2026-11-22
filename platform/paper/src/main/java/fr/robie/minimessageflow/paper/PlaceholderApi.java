@@ -162,19 +162,19 @@ public final class PlaceholderApi {
         }
 
         /**
-         * Adds PlaceholderAPI to a builder when it is installed and enabled; does nothing otherwise.
+         * Adds PlaceholderAPI to a builder. When it is not enabled yet (an instance built while plugins load, before
+         * they are enabled), it is asked from the first render after it is: until then its placeholders stay as
+         * written, and PlaceholderAPI's classes are not loaded.
          *
-         * @return whether PlaceholderAPI was added
+         * @return whether PlaceholderAPI is enabled now
          */
         public boolean applyTo(@NotNull MiniMessageFlow.Builder flow, @NotNull Plugin plugin) {
             Objects.requireNonNull(flow, "flow cannot be null");
             Objects.requireNonNull(plugin, "plugin cannot be null");
-            if (!isInstalled()) {
-                return false;
-            }
-            this.applyTo(flow, new ClipHook(), player -> player != null ? Regions.ownsPlayer(player) : Bukkit.isPrimaryThread(),
-                    plugin.getLogger());
-            return true;
+            boolean installed = isInstalled();
+            this.applyTo(flow, installed ? new ClipHook() : new LazyHook(),
+                    player -> player != null ? Regions.ownsPlayer(player) : Bukkit.isPrimaryThread(), plugin.getLogger());
+            return installed;
         }
 
         /**
@@ -189,6 +189,34 @@ public final class PlaceholderApi {
             if (this.keys == Keys.ALL) {
                 flow.resolver(asker);
             }
+        }
+    }
+
+    /**
+     * PlaceholderAPI once it is enabled: for an instance built before it is. Its classes are loaded when it is.
+     */
+    private static final class LazyHook implements Hook {
+        private volatile @Nullable Hook hook;
+
+        private @Nullable Hook hook() {
+            Hook hook = this.hook;
+            if (hook == null && isInstalled()) {
+                hook = new ClipHook();
+                this.hook = hook;
+            }
+            return hook;
+        }
+
+        @Override
+        public boolean isRegistered(@NotNull String identifier) {
+            Hook hook = this.hook();
+            return hook != null && hook.isRegistered(identifier);
+        }
+
+        @Override
+        public @NotNull String setPlaceholders(@Nullable OfflinePlayer player, @NotNull String text) {
+            Hook hook = this.hook();
+            return hook == null ? text : hook.setPlaceholders(player, text);
         }
     }
 
