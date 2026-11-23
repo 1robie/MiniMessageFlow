@@ -5,6 +5,7 @@ import fr.robie.minimessageflow.Template;
 import fr.robie.minimessageflow.Values;
 import net.kyori.adventure.pointer.Pointered;
 import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.format.Style;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -22,10 +23,23 @@ final class NestedTemplate implements Template {
     private final Engine engine;
     private final String source;
     private final Engine.NestedPlans plans = new Engine.NestedPlans();
+    /**
+     * The style set on the root of each render, or null: set before the template is given out.
+     */
+    private @Nullable Style style;
 
     NestedTemplate(@NotNull Engine engine, @NotNull String source) {
         this.engine = engine;
         this.source = source;
+    }
+
+    void applyStyle(@NotNull Style style) {
+        this.style = style;
+    }
+
+    private @NotNull Component styled(@NotNull Component rendered) {
+        Style style = this.style;
+        return style == null ? rendered : CompiledTemplate.styled(rendered, style);
     }
 
     @Override
@@ -55,12 +69,12 @@ final class NestedTemplate implements Template {
 
     @Override
     public @NotNull Component render(@NotNull Placeholder placeholders, @Nullable Pointered viewer) {
-        return this.engine.renderNested(this.engine.expandNested(this.source, this.plans, placeholders, null, viewer));
+        return this.styled(this.engine.renderNested(this.engine.expandNested(this.source, this.plans, placeholders, null, viewer)));
     }
 
     @Override
     public @NotNull Component render(@NotNull Values values, @Nullable Pointered viewer) {
-        return this.engine.renderNested(this.engine.expandNested(this.source, this.plans, null, values, viewer));
+        return this.styled(this.engine.renderNested(this.engine.expandNested(this.source, this.plans, null, values, viewer)));
     }
 
     @Override

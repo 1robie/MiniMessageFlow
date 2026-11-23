@@ -298,7 +298,9 @@ differently), except for four things done on purpose:
 
 JMH 1.37, JDK 21.0.8, Windows desktop (12 threads); `-wi 5 -i 10 -f 2` with 1 s iterations, ± is the 99.9% error
 (`./gradlew :benchmarks:jmh -Pjmh.time=1s`, `-PadventureVersion=5.2.0` for the 5.2 column). Adventure 5.x keeps the
-children a render gives it without copying them, hence the lower numbers there.
+children a render gives it without copying them, hence the lower numbers there. The rows of 1.5.0 changes were
+measured again on JDK 21.0.13 against 1.4.0 in the same session: a template follows its instance's changes for one
+field read per render (0.3 to 0.8 ns), the rest within the noise.
 
 **Rendering**, the values changing at every send (`RenderBenchmark`: 16 sets of values made before the run, so the
 render alone is timed):
@@ -327,7 +329,7 @@ same within 1 ns):
 | Message | MiniMessageFlow | Allocated | `MiniMessage.deserialize` |
 |---|---:|---:|---:|
 | no placeholder, `Template.render()` | 0.35 ± 0.01 ns | 0 B | 1.8 ± 0.2 µs, 5.2 KB |
-| no placeholder, `format(String)` (cache lookup) | 1.8 ± 0.1 ns | 0 B | |
+| no placeholder, `format(String)` (cache lookup) | 2.3 ± 0.1 ns | 0 B | |
 | 3 placeholders + click | 18 ± 1 ns | 0 B | |
 | the same, values set in a `Values` for the send | 12 ± 1 ns | 0 B | |
 | the same, a `Placeholder` built for the send | 30 ± 1 ns | 112 B | |
@@ -336,8 +338,9 @@ same within 1 ns):
 | `<selector>`, `<score>` + 2 placeholders (MiniMessage, markers) | 12 ± 1 ns | 0 B | |
 | `<sprite>`, `<head:name>` + 2 placeholders: 5.2 native / 4.17 markers | 12 ± 1 / 44 ± 1 ns | 0 / 160 B | |
 | a global placeholder (resolver text) | 19 ± 1 ns | 0 B | |
+| the same, `style(...)` on its root (an item's line not italic) | 21 ± 1 ns | 0 B | |
 | a value in a click argument / hover's text / translation argument | 12 / 16 / 20 ± 1 ns | 0 B | |
-| gradient over a value | 5.8 ± 0.1 ns | 0 B | |
+| gradient over a value | 6.4 ± 0.1 ns | 0 B | |
 
 **Several threads** rendering the same templates (`SharedRenderBenchmark`, values changing at every send, Adventure
 4.17). On this machine a render that writes nothing takes about 1.5 times as long on 8 threads as on one:

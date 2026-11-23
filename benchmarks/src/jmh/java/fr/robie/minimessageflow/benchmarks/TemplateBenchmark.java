@@ -5,6 +5,8 @@ import fr.robie.minimessageflow.Placeholder;
 import fr.robie.minimessageflow.Resolver;
 import fr.robie.minimessageflow.Template;
 import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.format.Style;
+import net.kyori.adventure.text.format.TextDecoration;
 import org.openjdk.jmh.annotations.Benchmark;
 import org.openjdk.jmh.annotations.BenchmarkMode;
 import org.openjdk.jmh.annotations.Mode;
@@ -138,6 +140,17 @@ public class TemplateBenchmark {
     @Benchmark
     public Component gradientSame() {
         return this.gradient.render(this.name);
+    }
+
+    private final Template styled = this.flow.compile("<gray>[%server%] <white>%name%")
+            .style(Style.style(TextDecoration.ITALIC.withState(false)));
+
+    /**
+     * An item's line: its root not italic, the style compiled in the template.
+     */
+    @Benchmark
+    public Component styledRender() {
+        return this.styled.render(this.name);
     }
 
     @Benchmark

@@ -5,6 +5,7 @@ import fr.robie.minimessageflow.Template;
 import fr.robie.minimessageflow.Values;
 import net.kyori.adventure.pointer.Pointered;
 import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.format.Style;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -53,6 +54,12 @@ final class CompiledTemplate implements Template {
      */
     private final Engine.KeyPlan[] slotPlans;
     private final Engine.KeyPlan[] inlinePlans;
+    /**
+     * The same plans placed as written, for values that ask it ({@code Values.rawValues}): made on first use, chosen
+     * once per render so the per-placeholder path stays as it is.
+     */
+    private volatile Engine.KeyPlan @Nullable [] rawSlotPlans;
+    private volatile Engine.KeyPlan @Nullable [] rawInlinePlans;
     private final Engine.Form base;
     /**
      * The message with values in a click or insert argument, compiled once (stage 3), or null.
@@ -66,7 +73,12 @@ final class CompiledTemplate implements Template {
     /**
      * What every render gives, when nothing in the message changes: no placeholder, or only constants.
      */
-    private final @Nullable Component fixed;
+    private @Nullable Component fixed;
+    /**
+     * The style set on the root of each render, or null: set by {@link #applyStyle} before the template is given
+     * out, then never changed.
+     */
+    private @Nullable Style style;
     private final Kind kind;
     private final List<String> placeholders;
     private final ConcurrentHashMap<SlotSet, Engine.Form> variants = new ConcurrentHashMap<>();
@@ -149,6 +161,21 @@ final class CompiledTemplate implements Template {
         this.placeholders = List.copyOf(keys);
     }
 
+    /**
+     * Sets the style on the root of each render, before this template is given out (published by the volatile
+     * field of the template that keeps it).
+     */
+    void applyStyle(@NotNull Style style) {
+        this.style = style;
+        if (this.fixed != null) {
+            this.fixed = styled(this.fixed, style);
+        }
+    }
+
+    static @NotNull Component styled(@NotNull Component rendered, @NotNull Style style) {
+        return rendered.style(rendered.style().merge(style));
+    }
+
     private static int firstSlot(@NotNull Engine.Slots slots, @NotNull String key) {
         for (int slot = 0; slot < slots.size(); slot++) {
             if (slots.key(slot).equals(key)) {
@@ -208,6 +235,8 @@ final class CompiledTemplate implements Template {
         // and a render with the same values gives the last component again. Each value a String (plain text), a
         // Component, or null.
         boolean own = fast != null && fast.remembersRenders();
+        boolean raw = fast != null && fast.rawValues();
+        Engine.KeyPlan[] slotPlans = raw ? this.rawSlotPlans() : this.slotPlans;
         Last last = own ? (Last) fast.lastRender(this) : this.last.get();
         Object[] keptValues = last == null ? null : last.values;
         Object[] values = null;
@@ -216,8 +245,8 @@ final class CompiledTemplate implements Template {
         long[] unknownMore = null;
         for (int slot = 0; slot < size; slot++) {
             int source = this.slotSources[slot];
-            Object value = source != slot ? this.given(values, keptValues, source)
-                    : this.engine.value(this.slotPlans[slot], placeholders, fast, viewer);
+            Object value = source != slot ? this.given(slotPlans, values, keptValues, source)
+                    : this.engine.value(slotPlans[slot], placeholders, fast, viewer);
             if (value == null) {
                 if (this.slots.isName(slot)) {
                     if (slot < 64) {
@@ -226,7 +255,7 @@ final class CompiledTemplate implements Template {
                         unknownMore = SlotSet.set(unknownMore == null ? new long[2] : unknownMore, slot);
                     }
                 } else {
-                    value = this.slotPlans[slot].written;
+                    value = slotPlans[slot].written;
                 }
             }
             if (values == null) {
@@ -244,6 +273,7 @@ final class CompiledTemplate implements Template {
         boolean inlineSame = true;
         if (this.pieces != null) {
             String[] keptInline = last == null ? null : last.inline;
+            Engine.KeyPlan[] inlinePlans = raw ? this.rawInlinePlans() : this.inlinePlans;
             int count = this.inlineKeys.size();
             for (int i = 0; i < count; i++) {
                 int source = this.inlineSources[i];
@@ -251,9 +281,9 @@ final class CompiledTemplate implements Template {
                 if (source < 0 && -1 - source < i) {
                     text = inline != null ? inline[-1 - source] : keptInline[-1 - source];
                 } else {
-                    Object value = source >= 0 ? this.given(values, keptValues, source)
-                            : this.engine.value(this.inlinePlans[i], placeholders, fast, viewer);
-                    text = Engine.inlineText(this.inlinePlans[i], value, this.colonBreaking[i]);
+                    Object value = source >= 0 ? this.given(slotPlans, values, keptValues, source)
+                            : this.engine.value(inlinePlans[i], placeholders, fast, viewer);
+                    text = Engine.inlineText(inlinePlans[i], value, this.colonBreaking[i]);
                 }
                 if (inline == null) {
                     if (keptInline != null && keptInline[i].equals(text)) {
@@ -293,6 +323,10 @@ final class CompiledTemplate implements Template {
             unclaimed = SlotSet.of(unknownMore);
         }
         Component rendered = this.build(values, unclaimed, inline);
+        if (this.style != null) {
+            // Here, not in build: build stays small enough for the JIT to inline it into this render.
+            rendered = styled(rendered, this.style);
+        }
         if (own) {
             // The values' own memory, read by one thread: every render is kept.
             fast.lastRender(this, new Last(values, inline, rendered));
@@ -339,9 +373,36 @@ final class CompiledTemplate implements Template {
      * A slot's value as given, null when it had none (its value is then the placeholder as written, or null), read
      * from this render's values, or from the last render's while they are the same.
      */
-    private @Nullable Object given(@Nullable Object @Nullable [] values, @Nullable Object @Nullable [] kept, int slot) {
+    private @Nullable Object given(Engine.KeyPlan @NotNull [] plans, @Nullable Object @Nullable [] values,
+                                   @Nullable Object @Nullable [] kept, int slot) {
         Object value = values != null ? values[slot] : kept[slot];
-        return value == this.slotPlans[slot].written ? null : value;
+        return value == plans[slot].written ? null : value;
+    }
+
+    private Engine.KeyPlan @NotNull [] rawSlotPlans() {
+        Engine.KeyPlan[] plans = this.rawSlotPlans;
+        if (plans == null) {
+            plans = this.rawPlans(this.slotPlans);
+            this.rawSlotPlans = plans;
+        }
+        return plans;
+    }
+
+    private Engine.KeyPlan @NotNull [] rawInlinePlans() {
+        Engine.KeyPlan[] plans = this.rawInlinePlans;
+        if (plans == null) {
+            plans = this.rawPlans(this.inlinePlans);
+            this.rawInlinePlans = plans;
+        }
+        return plans;
+    }
+
+    private Engine.KeyPlan @NotNull [] rawPlans(Engine.KeyPlan @NotNull [] plans) {
+        Engine.KeyPlan[] raw = new Engine.KeyPlan[plans.length];
+        for (int i = 0; i < plans.length; i++) {
+            raw[i] = plans[i].raw ? plans[i] : this.engine.rawPlan(plans[i]);
+        }
+        return raw;
     }
 
     private @NotNull Component build(@Nullable Object @NotNull [] values, @NotNull SlotSet unclaimed, @NotNull String @Nullable [] inline) {

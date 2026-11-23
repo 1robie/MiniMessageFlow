@@ -194,14 +194,43 @@ public final class PlaceholderApi {
 
     /**
      * PlaceholderAPI once it is enabled: for an instance built before it is. Its classes are loaded when it is.
+     * <p>
+     * Until then Bukkit is asked at most once a tick, not at each placeholder: a server without PlaceholderAPI asks
+     * twenty times a second, whatever it renders. A listener can't do it: an instance is often built while its plugin
+     * loads, before it may register one.
      */
-    private static final class LazyHook implements Hook {
-        private volatile @Nullable Hook hook;
+    static final class LazyHook implements Hook {
+        private static final long RECHECK_NANOS = 50_000_000L;
 
-        private @Nullable Hook hook() {
+        private final java.util.function.BooleanSupplier installed;
+        private final java.util.function.Supplier<Hook> attach;
+        private volatile @Nullable Hook hook;
+        /**
+         * When Bukkit is asked again, in {@link System#nanoTime()}: compared by difference, as its origin is any.
+         */
+        private volatile long nextCheck = System.nanoTime();
+
+        LazyHook() {
+            this(PlaceholderApi::isInstalled, ClipHook::new);
+        }
+
+        LazyHook(@NotNull java.util.function.BooleanSupplier installed, @NotNull java.util.function.Supplier<Hook> attach) {
+            this.installed = installed;
+            this.attach = attach;
+        }
+
+        @Nullable Hook hook() {
             Hook hook = this.hook;
-            if (hook == null && isInstalled()) {
-                hook = new ClipHook();
+            if (hook != null) {
+                return hook;
+            }
+            long now = System.nanoTime();
+            if (now - this.nextCheck < 0) {
+                return null;
+            }
+            this.nextCheck = now + RECHECK_NANOS;
+            if (this.installed.getAsBoolean()) {
+                hook = this.attach.get();
                 this.hook = hook;
             }
             return hook;

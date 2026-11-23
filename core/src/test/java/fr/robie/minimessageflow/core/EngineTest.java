@@ -261,7 +261,7 @@ class EngineTest {
     }
 
     private static CompiledTemplate compiled(fr.robie.minimessageflow.Template template) {
-        return (CompiledTemplate) (template instanceof LiveTemplate live ? live.current() : template);
+        return (CompiledTemplate) (template instanceof FlowTemplate flow ? flow.compiled() : template);
     }
 
     private Engine.Form form(String message) {

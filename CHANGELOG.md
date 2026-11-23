@@ -5,7 +5,8 @@
 - Paper: PlaceholderAPI is used by an instance built before it is enabled (a plugin building its instance in its
   constructor or `onLoad`): it is asked from the first render after PlaceholderAPI is enabled. Before, `applyTo` and
   `PaperFlow` added nothing when PlaceholderAPI was not enabled yet, so its placeholders stayed as written.
-  `applyTo` returns whether it is enabled now.
+  `applyTo` returns whether it is enabled now. Until it is enabled, Bukkit is asked at most once a tick, not at
+  each placeholder.
 - Placeholders written inside another one, as PlaceholderAPI expansions are often given a value
   (`%changeoutput_equals_input:%page%_matcher:1_ifmatch:<glyph:first>_else:x%`, `%math_0_%amount%+1%`): such a
   message or text is read in the order a string placeholder parser used. Its values are written in first (a value a
@@ -36,7 +37,8 @@
 - `Template.style(Style)` and `TemplateList.style(Style)` / `style(line -> style)`: each render gets a style on its
   root, set over the root's own (the text inside keeps its styles): an item's name and lore not italic. While the
   template gives the same render (values unchanged, `rememberRenders`), the styled one is the same instance too, per
-  `Values`.
+  `Values`. On an instance's template the style is compiled in (no extra layer at render) and follows the instance's
+  changes: a message static when styled shows a tag or preprocessor added later.
 - `builder.placeholdersInFormattedValues(true)`: the `%key%` placeholders written inside a formatted value
   (`setFormatted`, `registerFormatted`, a formatted lookup) are read at each render through the resolvers, for the
   render's viewer, then the value is parsed: a configuration's `"%vault_eco_balance%$"` shows the balance. Plain
@@ -47,7 +49,11 @@
   `constant(...)` and their `remove...` add to an instance and remove from it at any time, thread-safe. Every
   template it compiled, before or after (`compile`, `format`, `compileAll`, `compileText`, the translator's), uses
   them from its next render: it compiles its message again once. Several changes in a row cost one rebuild, made
-  on the next use. A tag cannot take a value tag's name, nor a value tag a tag's.
+  on the next use. A tag cannot take a value tag's name, nor a value tag a tag's. The instance tells its templates
+  of a change (held weakly: a template no one keeps is collected as before), so a render never checks for one: it
+  costs one field read more than in 1.4.0 (0.3 to 0.8 ns). `format`'s cache belongs to the engine of the definitions
+  it was compiled with. Values placed as written (`rawValues`) pick their plans once per render, so the
+  per-placeholder path is 1.4.0's.
 - `MiniMessageFlow.numberStyle(NumberStyle)`: the number style changed on the instance, for a configuration read
   again, without making a new one. Its templates use it from their next render, and the `Values` it made write a
   `double` in it from their next `set`; a text already set keeps its separators until set again.

@@ -5,8 +5,8 @@ import fr.robie.minimessageflow.cache.CacheFactory;
 import fr.robie.minimessageflow.core.BoundedCache;
 import fr.robie.minimessageflow.core.Engine;
 import fr.robie.minimessageflow.core.EngineSource;
-import fr.robie.minimessageflow.core.LiveTemplate;
-import fr.robie.minimessageflow.core.LiveText;
+import fr.robie.minimessageflow.core.FlowTemplate;
+import fr.robie.minimessageflow.core.FlowText;
 import fr.robie.minimessageflow.core.ValueTagResolver;
 import net.kyori.adventure.pointer.Pointered;
 import net.kyori.adventure.text.Component;
@@ -73,10 +73,6 @@ public final class MiniMessageFlow {
     private final List<Resolver> resolvers = new ArrayList<>();
     private final Map<String, Object> constants = new LinkedHashMap<>();
     /**
-     * The engine for the definitions as they are; null after a change, made again on use.
-     */
-    private volatile @Nullable Engine engine;
-    /**
      * Counts the changes of definitions ({@link #revision()}).
      */
     private volatile int revision;
@@ -84,9 +80,22 @@ public final class MiniMessageFlow {
      * Changes a message before it is compiled, or null ({@link #preprocessor(UnaryOperator)}).
      */
     private volatile @Nullable UnaryOperator<String> preprocessor;
-    private final EngineSource source = this::engine;
-    private final Cache<String, Template> templates;
-    private final Cache<String, TextTemplate> texts;
+    /**
+     * The engine for the definitions as they are; null after a change, made again on use.
+     */
+    private final EngineSource source = new EngineSource() {
+        @Override
+        protected @NotNull Engine rebuild() {
+            synchronized (MiniMessageFlow.this) {
+                Engine engine = this.peek();
+                if (engine == null) {
+                    engine = MiniMessageFlow.this.makeEngine();
+                    this.set(engine);
+                }
+                return engine;
+            }
+        }
+    };
     private final ValueKeys keys;
     /**
      * The modifiers, with the number style they read numbers in ({@link #numberStyle(NumberStyle)} changes it).
@@ -110,33 +119,20 @@ public final class MiniMessageFlow {
         this.resolvers.addAll(builder.resolvers);
         this.preprocessor = builder.preprocessor;
         this.constants.putAll(builder.constants);
-        this.templates = builder.caches.create(CacheFactory.Kind.TEMPLATES, builder.templateCacheSize);
-        this.texts = builder.caches.create(CacheFactory.Kind.TEXT_TEMPLATES, builder.templateCacheSize);
         TagResolver visible = this.visibleTags();
         for (Resolver resolver : this.resolvers) {
             if (resolver instanceof PendingValueTag(String name, ValueTag ignored) && visible != null && visible.has(name)) {
                 throw new IllegalArgumentException("<" + name + "> is claimed by a tag given to tags(...): it would never reach the value tag");
             }
         }
-        this.engine = this.makeEngine();
+        this.source.set(this.makeEngine());
     }
 
     /**
      * The engine for the definitions as they are now, made again after a change.
      */
     private @NotNull Engine engine() {
-        Engine engine = this.engine;
-        if (engine != null) {
-            return engine;
-        }
-        synchronized (this) {
-            engine = this.engine;
-            if (engine == null) {
-                engine = this.makeEngine();
-                this.engine = engine;
-            }
-            return engine;
-        }
+        return this.source.engine();
     }
 
     /**
@@ -152,7 +148,7 @@ public final class MiniMessageFlow {
         return new Engine(s.legacyCodes(), resolvers, tags, s.valueCacheSize(), s.nativeCompiler(),
                 s.verifyNative(), s.caches(), s.errors(), this.modifiers, s.bareHexColors(), s.keys(), constants,
                 s.legacyPrefixModifiers(), s.failedModifier() == FailedModifier.EMPTY, s.placeholdersInFormattedValues(),
-                this.preprocessor);
+                this.preprocessor, s.templateCacheSize());
     }
 
     /**
@@ -203,9 +199,7 @@ public final class MiniMessageFlow {
      */
     private void changed() {
         this.revision++;
-        this.engine = null;
-        this.templates.clear();
-        this.texts.clear();
+        this.source.changed();
     }
 
     /**
@@ -466,7 +460,7 @@ public final class MiniMessageFlow {
      */
     public @NotNull Template compile(@NotNull String message) {
         Objects.requireNonNull(message, "message cannot be null");
-        return new LiveTemplate(this.source, message);
+        return new FlowTemplate(this.source, message);
     }
 
     /**
@@ -488,7 +482,7 @@ public final class MiniMessageFlow {
      */
     public @NotNull TextTemplate compileText(@NotNull String text) {
         Objects.requireNonNull(text, "text cannot be null");
-        return new LiveText(this.source, text);
+        return new FlowText(this.source, text);
     }
 
     /**
@@ -536,7 +530,7 @@ public final class MiniMessageFlow {
     public @NotNull Component format(@NotNull String message, @NotNull Placeholder placeholders, @Nullable Pointered viewer) {
         Objects.requireNonNull(message, "message cannot be null");
         Objects.requireNonNull(placeholders, "placeholders cannot be null");
-        return this.templates.get(message, this::compile).render(placeholders, viewer);
+        return this.engine().formatTemplate(message).render(placeholders, viewer);
     }
 
     public @NotNull Component format(@NotNull String message, @NotNull Placeholder placeholders) {
@@ -549,7 +543,7 @@ public final class MiniMessageFlow {
     public @NotNull Component format(@NotNull String message, @NotNull Values values, @Nullable Pointered viewer) {
         Objects.requireNonNull(message, "message cannot be null");
         Objects.requireNonNull(values, "values cannot be null");
-        return this.templates.get(message, this::compile).render(values, viewer);
+        return this.engine().formatTemplate(message).render(values, viewer);
     }
 
     public @NotNull Component format(@NotNull String message, @NotNull Values values) {
@@ -569,13 +563,13 @@ public final class MiniMessageFlow {
     public @NotNull String formatText(@NotNull String text, @NotNull Values values, @Nullable Pointered viewer) {
         Objects.requireNonNull(text, "text cannot be null");
         Objects.requireNonNull(values, "values cannot be null");
-        return this.texts.get(text, this::compileText).render(values, viewer);
+        return this.engine().formatText(text).render(values, viewer);
     }
 
     public @NotNull String formatText(@NotNull String text, @NotNull Placeholder placeholders, @Nullable Pointered viewer) {
         Objects.requireNonNull(text, "text cannot be null");
         Objects.requireNonNull(placeholders, "placeholders cannot be null");
-        return this.texts.get(text, this::compileText).render(placeholders, viewer);
+        return this.engine().formatText(text).render(placeholders, viewer);
     }
 
     public @NotNull String formatText(@NotNull String text, @NotNull Placeholder placeholders) {
@@ -591,7 +585,7 @@ public final class MiniMessageFlow {
         Objects.requireNonNull(values, "values cannot be null");
         List<Component> out = new ArrayList<>(lines.size());
         for (String line : lines) {
-            out.addAll(this.templates.get(line, this::compile).renderLines(values, viewer));
+            out.addAll(this.engine().formatTemplate(line).renderLines(values, viewer));
         }
         return out;
     }
@@ -601,7 +595,7 @@ public final class MiniMessageFlow {
         Objects.requireNonNull(placeholders, "placeholders cannot be null");
         List<Component> out = new ArrayList<>(lines.size());
         for (String line : lines) {
-            out.addAll(this.templates.get(line, this::compile).renderLines(placeholders, viewer));
+            out.addAll(this.engine().formatTemplate(line).renderLines(placeholders, viewer));
         }
         return out;
     }
@@ -622,9 +616,7 @@ public final class MiniMessageFlow {
      * working.
      */
     public void clearCache() {
-        this.templates.clear();
-        this.texts.clear();
-        Engine engine = this.engine;
+        Engine engine = this.source.peek();
         if (engine != null) {
             engine.clearCache();
         }

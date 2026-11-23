@@ -13,6 +13,7 @@ import fr.robie.minimessageflow.cache.CacheFactory;
 import fr.robie.minimessageflow.internal.PlaceholderScanner;
 import net.kyori.adventure.pointer.Pointered;
 import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.format.Style;
 import net.kyori.adventure.text.TextComponent;
 import net.kyori.adventure.text.minimessage.Context;
 import net.kyori.adventure.text.minimessage.MiniMessage;
@@ -114,6 +115,12 @@ public final class Engine {
     private final Cache<String, Component> resolverTexts;
     private final Cache<ValuesKey, Component> withValues;
     private final Cache<InlineKey, Form> inlineForms;
+    /**
+     * The messages and texts of {@code format} and {@code formatText}, compiled by this engine: a change of
+     * definitions makes another engine, so they never outlive the definitions they were compiled with.
+     */
+    private final Cache<String, Template> formatTemplates;
+    private final Cache<String, fr.robie.minimessageflow.TextTemplate> formatTexts;
     private final BiConsumer<String, Throwable> errors;
     private final ModifierSet modifiers;
     private final boolean bareHex;
@@ -148,7 +155,7 @@ public final class Engine {
                   @NotNull BiConsumer<String, Throwable> errors, @NotNull ModifierSet modifiers, boolean bareHex,
                   @NotNull ValueKeys keys, @NotNull Map<String, Object> constants, boolean legacyPrefixes,
                   boolean emptyOnFailedModifier, boolean placeholdersInFormattedValues,
-                  @Nullable UnaryOperator<String> preprocessor) {
+                  @Nullable UnaryOperator<String> preprocessor, int templateCacheSize) {
         this.preprocessor = preprocessor;
         this.placeholdersInFormattedValues = placeholdersInFormattedValues;
         this.legacyPrefixes = legacyPrefixes;
@@ -176,6 +183,8 @@ public final class Engine {
         this.resolverTexts = caches.create(CacheFactory.Kind.RESOLVER_TEXTS, cacheSize);
         this.withValues = caches.create(CacheFactory.Kind.PARSED_WITH_VALUES, cacheSize);
         this.inlineForms = caches.create(CacheFactory.Kind.INLINE_TEXTS, cacheSize);
+        this.formatTemplates = caches.create(CacheFactory.Kind.TEMPLATES, templateCacheSize);
+        this.formatTexts = caches.create(CacheFactory.Kind.TEXT_TEMPLATES, templateCacheSize);
         Map<String, Component> formatted = new HashMap<>();
         constants.forEach((key, value) -> formatted.put(key, value instanceof Component component ? component
                 // Text is read on its own, as a resolver's: its colours end with it.
@@ -187,9 +196,40 @@ public final class Engine {
         this.resolverTexts.clear();
         this.withValues.clear();
         this.inlineForms.clear();
+        this.formatTemplates.clear();
+        this.formatTexts.clear();
+    }
+
+    /**
+     * A message of {@code format}, compiled the first time.
+     */
+    public @NotNull Template formatTemplate(@NotNull String message) {
+        return this.formatTemplates.get(message, this::compile);
+    }
+
+    /**
+     * A text of {@code formatText}, compiled the first time.
+     */
+    public @NotNull fr.robie.minimessageflow.TextTemplate formatText(@NotNull String text) {
+        return this.formatTexts.get(text, this::compileText);
     }
 
     // --- compiling ----------------------------------------------------------------------------------------------
+
+    /**
+     * Compiles a message whose renders get a style on their root ({@code Template.style}), or none.
+     */
+    public @NotNull Template compile(@NotNull String source, @Nullable Style style) {
+        Template template = this.compile(source);
+        if (style != null && !style.isEmpty()) {
+            switch (template) {
+                case CompiledTemplate compiled -> compiled.applyStyle(style);
+                case NestedTemplate nested -> nested.applyStyle(style);
+                default -> throw new IllegalStateException("not compiled here: " + template);
+            }
+        }
+        return template;
+    }
 
     public @NotNull Template compile(@NotNull String source) {
         if (this.preprocessor != null) {
@@ -465,13 +505,11 @@ public final class Engine {
      */
     @Nullable Object value(@NotNull KeyPlan plan, @NotNull Placeholder placeholders, @Nullable Values values,
                            @Nullable Pointered viewer) {
-        if (values != null && values.rawValues() && !plan.raw) {
-            plan = this.rawPlan(plan);
-        }
         if (plan.constant != null) {
             return plan.constant;
         }
-        // The common case first, small enough to be inlined: a plain value set in these values' own layer.
+        // The common case first, small enough to be inlined: a plain value set in these values' own layer. Values
+        // placed as written come with raw plans (CompiledTemplate picks them once per render), never here.
         if (values != null && !plan.raw && plan.index >= 0) {
             Object own = values.raw(plan.index);
             if (own instanceof String text && !values.hasFormatted() || own instanceof Component) {
@@ -909,7 +947,7 @@ public final class Engine {
     /**
      * The plan of a placeholder placed as written, made once from the plan as written.
      */
-    private @NotNull KeyPlan rawPlan(@NotNull KeyPlan plan) {
+    @NotNull KeyPlan rawPlan(@NotNull KeyPlan plan) {
         KeyPlan twin = plan.rawTwin;
         if (twin == null) {
             twin = this.plan(plan.key, true);
