@@ -384,6 +384,18 @@ public final class MiniMessageFlow {
     }
 
     /**
+     * Compiles every template of this instance again on its next render, and starts the {@link #format} cache again,
+     * for a change the instance cannot see by itself: a preprocessor or a resolver whose output changed without
+     * being replaced, such as a plugin's font images loaded after the texts were compiled. {@link #revision()}
+     * changes too. Nothing is compiled now: each template compiles itself again when it is next used. Thread-safe.
+     */
+    public void recompile() {
+        synchronized (this) {
+            this.changed();
+        }
+    }
+
+    /**
      * What changes a message before it is compiled now, or null.
      */
     public @Nullable UnaryOperator<String> preprocessor() {

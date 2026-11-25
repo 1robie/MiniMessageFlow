@@ -6,6 +6,8 @@ import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.UnaryOperator;
 
@@ -61,6 +63,29 @@ class PreprocessorTest {
 
         flow.preprocessor(null);
         assertEquals("I :heart: it", PLAIN.serialize(template.render()));
+    }
+
+    @Test
+    @DisplayName("recompile() picks up a preprocessor whose output changed without being replaced")
+    void recompile() {
+        Map<String, String> glyphs = new ConcurrentHashMap<>();
+        MiniMessageFlow flow = MiniMessageFlow.builder().preprocessor(text -> {
+            String result = text;
+            for (Map.Entry<String, String> glyph : glyphs.entrySet()) result = result.replace(glyph.getKey(), glyph.getValue());
+            return result;
+        }).build();
+        Template template = flow.compile("I :heart: it");
+        assertEquals("I :heart: it", PLAIN.serialize(template.render()));
+        assertEquals("I :heart: it", PLAIN.serialize(flow.format("I :heart: it")));
+
+        glyphs.put(":heart:", "<3");
+        assertEquals("I :heart: it", PLAIN.serialize(template.render()), "the instance cannot see the change by itself");
+
+        int revision = flow.revision();
+        flow.recompile();
+        assertNotEquals(revision, flow.revision());
+        assertEquals("I <3 it", PLAIN.serialize(template.render()));
+        assertEquals("I <3 it", PLAIN.serialize(flow.format("I :heart: it")));
     }
 
     @Test

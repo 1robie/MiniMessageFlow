@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.5.1
+
+- `instance.recompile()`: compiles every template of the instance again on its next render and starts the `format`
+  cache again, for a change the instance cannot see by itself, such as a preprocessor whose output changed without
+  being replaced (a plugin's font images loaded after the texts were compiled). `revision()` changes too. Before, the
+  only way was to set the definitions again or compile the texts again.
+
 ## 1.5.0
 
 - Paper: PlaceholderAPI is used by an instance built before it is enabled (a plugin building its instance in its
